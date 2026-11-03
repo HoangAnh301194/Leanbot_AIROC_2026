@@ -553,160 +553,231 @@ void followingLine(int x, int y ){
   followLine();
 }
 // folllowingLine(2000,300);
-void loop() {
+// ================================================================
+// EXPERIMENTAL FIXED MISSION: A2=Yellow, B4=Green, D3=Blue
+// Reserves: S1=Green, S3=Blue. Two-robot collision handling is
+// NOT implemented. This is a bench-testing route, not a field-
+// verified course map. Place robot ONLY at the specified start.
+// Start junction: (col=0,row=1), heading SOUTH. NOT at CTRL.
+// Map/grid approach positions and distances must be calibrated.
+// ================================================================
+const int ABD_NAV_SPEED = 900;              // steps/s
+const int ABD_MOVE_RPM = 25;
+const int ABD_TURN_RPM = 20;
+const int ABD_GRID_PITCH_MM = 406;          // nominal: 1219.2 / 3
+const int ABD_JUNCTION_MIN_MM = 260;        // initial estimates
+const int ABD_JUNCTION_MAX_MM = 550;
+const unsigned long ABD_NAV_TIMEOUT_MS = 7000;
+const unsigned long ABD_LOST_TIMEOUT_MS = 250;
+const int ABD_APPROACH_A_MM = 145;
+const int ABD_PUSH_B_MM = 145;
+const int ABD_PUSH_D_MM = 145;
+const int ABD_PLACE_B_MM = 125;
+const int ABD_PLACE_D_MM = 125;
+const int ABD_PLACE_CTRL_MM = 175;
+const int ABD_S1_LEFT_OFFSET_MM = 45;
+const int ABD_RESERVE_APPROACH_MM = 65;
 
-  // String colorTest = Obj_detectColor();
-  // Serial.println (colorTest);
-  // delay(300);
-  // if (colorTest == "Blue"){
+int abdCol = 0;
+int abdRow = 1;
+int abdHeading = 4;   // 0=N, 2=E, 4=S, 6=W; odd values = diagonals
+bool abdMissionFinished = false;
 
-  // }
-  // else if (colorTest == "Red"){
-
-  // }
-  // else {
-
-  // }
-   LbMission.begin(TB1A + TB1B);
-  di_thang(10);
-  re_phai(85);
-  speed = 1500;
-  distance = 400;
-   followLine();
-   LbMotion.stopAndWait();
-  re_phai(135);
-  di_thang(8);
-  mau = Obj_detectColor();			// Read and display color LED RGB
-  LbDelay(500);
-  if(mau == "Blue")
-  {
-      di_lui(8);
-re_phai(45);
-      
-  speed = 1500;
-  distance = 300;
-   followLine();
-   LbMotion.stopAndWait();
-re_trai(85);
-  speed = 1500;
-  distance = 300;
-   followLine();
-   LbMotion.stopAndWait();
-LbGripper.moveTo(90);
-re_trai(85);
-  speed = 1500;
-  distance = 300;
-   followLine();
-   LbMotion.stopAndWait();
-re_trai(85);
-  speed = 1500;
-  distance = 300;
-   followLine();
-   LbMotion.stopAndWait();
-re_trai(135);
- di_thang(15);
-LbGripper.moveTo(0);
- di_lui(10);
-re_trai(45);
+void abdFail() {
+  LbMotion.stopAndWait();
+  while (true) {
+    Leanbot.tone(800, 200);
+    LbDelay(800);
   }
-  else if(mau == "Green")
-  {
-            di_lui(8);
-re_phai(45);
-      
-  speed = 1500;
-  distance = 320;
-   followLine();
-   LbMotion.stopAndWait();
-re_trai(85);
-  speed = 1500;
-  distance = 320;
-   followLine();
-   LbMotion.stopAndWait();
-re_phai(90);
-di_thang(10);
-re_trai(85);
-LbGripper.moveTo(90);
-re_trai(85);
-  speed = 1500;
-  distance = 400;
-   followLine();
-   LbMotion.stopAndWait();
-re_trai(85);
-  speed = 1500;
-  distance = 320;
-   followLine();
-   LbMotion.stopAndWait();
-re_trai(135);
- di_thang(15);
-LbGripper.moveTo(0);
- di_lui(10);
-re_trai(45);
-  }
-else if(mau == "Purple")
-  {
- di_lui(8);
-re_phai(45);
-      
-  speed = 1500;
-  distance = 620;
-   followLine();
-   LbMotion.stopAndWait();
-LbGripper.moveTo(90);
-re_phai(175);
-  speed = 1500;
-  distance = 620;
-   followLine();
-   LbMotion.stopAndWait();
-re_phai(135);
- di_thang(15);
-LbGripper.moveTo(0);
- di_lui(10);
-re_trai(45);
-  }
-else if (mau == "Red" || mau == "Yellow")
-  {
-	LbGripper.moveTo(90);
-di_lui(8);
-	re_phai(45);
- speed = 1500;
-  distance = 320;
-   followLine();
-   LbMotion.stopAndWait();
-re_trai(42);
-di_thang(10);
-LbGripper.moveTo(0);
-di_lui(10);
-re_trai(130);
- speed = 1500;
-  distance = 320;
-   followLine();
-   LbMotion.stopAndWait();
-re_phai(85);
-  }
-  else {
-    // A failed / ambiguous APDS reading must not be treated as red.
-    LbMotion.stopAndWait();
-    Leanbot.tone(800, 300);
-    // Continue only after manual correction / restart.
-  }
-  // Dò Line
-  // { 
-  //   speed = 1500;
-  //   distance = 90;
-  //   followLine();
-  // }
-LbMission.end();
-//    LbMission.begin(TB1A + TB1B);
-// followLineUntilNthJunction(3, 1500);
-
-
-// LbMission.end();
 }
 
+void abdMoveMm(int signedMm) {
+  if (signedMm == 0) return;
+  int rpm = (signedMm > 0) ? ABD_MOVE_RPM : -ABD_MOVE_RPM;
+  LbMotion.runLRrpm(rpm, rpm);
+  LbMotion.waitDistanceMm(abs(signedMm));
+  LbMotion.stopAndWait();
+}
 
+void abdFace(int target) {
+  target = (target + 8) % 8;
+  int diff = (target - abdHeading + 8) % 8;
+  if (diff == 0) return;
+  if (diff <= 4) {
+    LbMotion.runLRrpm(ABD_TURN_RPM, -ABD_TURN_RPM);
+    LbMotion.waitRotationDeg(diff * 45);
+  } else {
+    LbMotion.runLRrpm(-ABD_TURN_RPM, ABD_TURN_RPM);
+    LbMotion.waitRotationDeg((8 - diff) * 45);
+  }
+  LbMotion.stopAndWait();
+  abdHeading = target;
+}
 
+// Detect next full-black junction (1111, three consecutive reads).
+// Bounded by encoder distance and elapsed time to avoid an infinite loop.
+bool abdOneJunction() {
+  unsigned long startMs = millis();
+  unsigned long lostAt = 0;
+  int startDistance = LbMotion.getDistanceMm();
+  int streak = 0;
+  speed = ABD_NAV_SPEED;
+  lineLossStartedAt = 0;
+  lastLineTurn = 0;
 
+  while (true) {
+    LbIRLine.read();
+    line = LbIRLine.value();
+    followLineMotorOnly();
 
-//https://lesysang1322002.github.io/Leanbot-Advanced/advance
+    int travelled = abs(LbMotion.getDistanceMm() - startDistance);
+    if (travelled >= ABD_JUNCTION_MIN_MM && line == 15) {
+      streak++;
+    } else {
+      streak = 0;
+    }
+    if (streak >= 3) {
+      LbMotion.stopAndWait();
+      return true;
+    }
+
+    if (line == 0) {
+      if (lostAt == 0) lostAt = millis();
+      if ((unsigned long)(millis() - lostAt) >= ABD_LOST_TIMEOUT_MS) {
+        LbMotion.stopAndWait();
+        return false;
+      }
+    } else {
+      lostAt = 0;
+    }
+
+    if (travelled >= ABD_JUNCTION_MAX_MM ||
+        (unsigned long)(millis() - startMs) >= ABD_NAV_TIMEOUT_MS) {
+      LbMotion.stopAndWait();
+      return false;
+    }
+  }
+}
+
+void abdGoTo(int col, int row) {
+  if (col < 0 || col > 3 || row < 0 || row > 3) abdFail();
+  while (abdCol != col) {
+    if (abdCol < col) {
+      abdFace(2);                   // east
+      if (!abdOneJunction()) abdFail();
+      abdCol++;
+    } else {
+      abdFace(6);                   // west
+      if (!abdOneJunction()) abdFail();
+      abdCol--;
+    }
+  }
+  while (abdRow != row) {
+    if (abdRow < row) {
+      abdFace(4);                   // south
+      if (!abdOneJunction()) abdFail();
+      abdRow++;
+    } else {
+      abdFace(0);                   // north
+      if (!abdOneJunction()) abdFail();
+      abdRow--;
+    }
+  }
+}
+
+void abdPush(int heading, int mm) {
+  int previous = abdHeading;
+  abdFace(heading);
+  LbGripper.close();
+  abdMoveMm(mm);
+  LbGripper.open();
+  abdMoveMm(-mm);
+  abdFace(previous);
+}
+
+void abdTake(int heading, int mm) {
+  int previous = abdHeading;
+  abdFace(heading);
+  LbGripper.open();
+  abdMoveMm(mm);
+  LbGripper.close();
+  abdMoveMm(-mm);
+  abdFace(previous);
+}
+
+void abdPlace(int heading, int mm) {
+  int previous = abdHeading;
+  abdFace(heading);
+  abdMoveMm(mm);
+  LbGripper.open();
+  abdMoveMm(-mm);
+  abdFace(previous);
+}
+
+// PROVISIONAL: locations S1/S3 are represented relative to (2,3).
+// Actual reserve-side access and clearance must be checked on the board.
+void abdTakeS3() {
+  abdGoTo(2, 3);
+  abdFace(4);
+  LbGripper.open();
+  abdMoveMm(ABD_RESERVE_APPROACH_MM);
+  LbGripper.close();
+  abdMoveMm(-ABD_RESERVE_APPROACH_MM);
+}
+
+void abdTakeS1() {
+  abdGoTo(2, 3);
+  abdFace(6);
+  abdMoveMm(ABD_S1_LEFT_OFFSET_MM);
+  abdFace(4);
+  LbGripper.open();
+  abdMoveMm(ABD_RESERVE_APPROACH_MM);
+  LbGripper.close();
+  abdMoveMm(-ABD_RESERVE_APPROACH_MM);
+  abdFace(2);
+  abdMoveMm(ABD_S1_LEFT_OFFSET_MM);
+  // Pose is back at (2,3) only if this offset was accurately executed.
+}
+
+void abdExecuteMission() {
+  // B4 Green: push original block into B diamond
+  abdGoTo(1, 2);
+  abdPush(7, ABD_PUSH_B_MM);
+
+  // D3 Blue: push original block into D diamond
+  abdPush(5, ABD_PUSH_D_MM);
+
+  // S3 Blue -> D diamond
+  abdTakeS3();
+  abdGoTo(1, 2);
+  abdPlace(5, ABD_PLACE_D_MM);
+
+  // S1 Green -> B diamond
+  abdTakeS1();
+  abdGoTo(1, 2);
+  abdPlace(7, ABD_PLACE_B_MM);
+
+  // A2 Yellow -> CTRL
+  abdGoTo(0, 1);
+  abdTake(1, ABD_APPROACH_A_MM);
+  abdGoTo(2, 2);
+  abdPlace(3, ABD_PLACE_CTRL_MM);
+  LbMotion.stopAndWait();
+}
+
+void loop() {
+  if (abdMissionFinished) return;
+
+  LbMission.begin(TB1A + TB1B);
+  // Must physically start at junction (0,1) pointing south.
+  // If competition requires CTRL start, this route MUST be remapped.
+  abdCol = 0;
+  abdRow = 1;
+  abdHeading = 4;
+
+  abdExecuteMission();
+  abdMissionFinished = true;
+  Leanbot.tone(1500, 200);
+  LbMission.end();
+}
 
