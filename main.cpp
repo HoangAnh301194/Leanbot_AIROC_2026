@@ -239,6 +239,8 @@ float lineTurnCorrection(int state) {
   }
 }
 
+void followJuntion();
+void followLineCarefully();
 void followLineMotorOnly();  // runFollowLine() calls this below
 
 void runFollowLine() {
