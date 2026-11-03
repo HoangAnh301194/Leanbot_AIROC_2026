@@ -28,7 +28,7 @@ This branch is experimental. **Do not merge or run at full speed before validati
 
 ## Experimental fixed A/B/D mission (added 2026-11-03)
 - `main.cpp` now contains `abdExecuteMission()` and a replacement `loop()` with fixed colors A2 Yellow, B4 Green, D3 Blue and reserve S1 Green / S3 Blue.
-- **Start assumption is junction `(col=0,row=1)`, heading south — NOT CTRL.** The actual start orientation/location on CTRL remains unconfirmed; remap before competition use.
+- **Revised START: center of CTRL cell, robot facing SOUTHWEST.** `abdExitCtrl()` moves approximately 287 mm (half the nominal cell diagonal) to the grid vertex `(2,3)`; this is an **unverified geometric hypothesis**, NOT the physical starting setup confirmed by the organizers. Validate position, heading, clearance and access to line before moving. The earlier assumption at `(0,1)` is obsolete.
 - Nominal 4-foot board = 1219.2 mm side; conceptual grid pitch = 406.4 mm. Encoder and junction thresholds, reserve access points, approach distances, and 45-degree motions are estimates that require physical calibration.
 - Route implemented: B4 push -> D3 push -> S3 Blue -> D3 place -> S1 Green -> B4 place -> A2 Yellow -> CTRL place.
 - Digital line-junction navigation checks three consecutive full-black masks and has distance/clock safety limits; it does NOT replace a measured map.
