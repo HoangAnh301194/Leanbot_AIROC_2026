@@ -207,20 +207,22 @@ ActionPoint pollutionPoint(uint8_t location) {
   return p;
 }
 
-// The storage slots are grouped around TWO grid junctions:
-// bottom S1/S3/S5 surround J32 (SW/S/SE), and right S2/S4/S6
-// surround J23 (NE/E/SE), as shown in the competition board.
-// ALL SIX storage pickups start from a node, never from a curve.
-// Straight approaches use STORAGE_NODE_MM; diagonal pickups use
-// the same +/-45-degree node TAKE distance as the former helpers.
+// Each storage trio shares ONE straight reference heading:
+// J32: face SOUTH toward S3. S1 = RIGHT 45 deg (SW),
+//      S3 = STRAIGHT (S), S5 = LEFT 45 deg (SE).
+// J23: face EAST toward S4. S2 = LEFT 45 deg (NE),
+//      S4 = STRAIGHT (E), S6 = RIGHT 45 deg (SE).
+// No forward/backward motion during storage pickup: stop at the node,
+// turn only 45 deg for side slots, grip, and turn back.
+// Storage approach headings do NOT authorize travel on perimeter edges.
 ActionPoint storagePoint(uint8_t zeroBased) {
   switch(zeroBased) {
-    case 0: return {ANCHOR_NODE,14,255,3,LEFT_45};   // S1: J32 -> SW
-    case 1: return {ANCHOR_NODE,11,255,0,RIGHT_45};  // S2: J23 -> NE
-    case 2: return {ANCHOR_NODE,14,255,2,STRAIGHT};  // S3: J32 -> S
-    case 3: return {ANCHOR_NODE,11,255,1,STRAIGHT};  // S4: J23 -> E
-    case 4: return {ANCHOR_NODE,14,255,1,RIGHT_45};  // S5: J32 -> SE
-    default:return {ANCHOR_NODE,11,255,2,LEFT_45};   // S6: J23 -> SE
+    case 0: return {ANCHOR_NODE,14,255,2,RIGHT_45};  // S1: J32 SOUTH -> SW
+    case 1: return {ANCHOR_NODE,11,255,1,LEFT_45};   // S2: J23 EAST  -> NE
+    case 2: return {ANCHOR_NODE,14,255,2,STRAIGHT};  // S3: J32 SOUTH
+    case 3: return {ANCHOR_NODE,11,255,1,STRAIGHT};  // S4: J23 EAST
+    case 4: return {ANCHOR_NODE,14,255,2,LEFT_45};   // S5: J32 SOUTH -> SE
+    default:return {ANCHOR_NODE,11,255,1,RIGHT_45};  // S6: J23 EAST  -> SE
   }
 }
 
