@@ -19,6 +19,12 @@ const unsigned long SURVEY_CURVE_TIMEOUT_MS = 26000UL;
 const unsigned long SURVEY_LINE_LOST_MS = 650UL;
 const unsigned long SURVEY_EXIT_BLACK_MS = 60UL;
 const int SURVEY_BLACK_SAMPLES = 3;
+const uint16_t MARKER_BEEP_HZ = 1050;   // low pitch: H/V checkpoint
+const uint16_t NODE_BEEP_HZ = 1900;     // high pitch: junction reached
+const uint16_t MARKER_BEEP_MS = 25;     // very short while line-following
+const uint16_t NODE_BEEP_MS = 80;
+const unsigned long RGB_REFRESH_MS = 35UL;
+
 
 
 int line;
@@ -361,6 +367,16 @@ bool traverseHop(uint8_t dest,uint8_t via) {
       return false;
     }
     surveyFollowMotor();
+
+    // Show the 4 IR line-sensor states on onboard RGB LEDs.
+    // Refresh periodically rather than every control iteration.
+    static unsigned long lastRgbAt = 0;
+    if ((unsigned long)(now-lastRgbAt) >= RGB_REFRESH_MS) {
+      lastRgbAt = now;
+      LbRGB.clear();
+      LbIRLine.displayOnRGB(0x00ff00);
+      LbRGB.show();
+    }
     if(line==15) {
       whiteAt=0;
       if(blackStreak<SURVEY_BLACK_SAMPLES) blackStreak++;
@@ -390,6 +406,14 @@ bool traverseHop(uint8_t dest,uint8_t via) {
           LbMotion.stopAndWait();
           Serial.println(F("ERROR EXTRA_1111"));
           return false;
+        }
+        // Final full-black event of a hop is a navigation NODE.
+        // Other events are intermediate MARKER bars.
+        if(observed==expected) {
+          LbMotion.stopAndWait();
+          Leanbot.tone(NODE_BEEP_HZ, NODE_BEEP_MS);
+        } else {
+          Leanbot.tone(MARKER_BEEP_HZ, MARKER_BEEP_MS);
         }
         if(observed==expected) {
           LbMotion.stopAndWait();
