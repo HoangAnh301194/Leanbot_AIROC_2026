@@ -131,6 +131,20 @@ struct ActionPoint {
   uint8_t heading;    // cardinal facing before object approach
   int8_t side;        // -1 = left45, +1 = right45, 0 = straight
 };
+
+// Explicit forward declarations prevent Arduino .ino preprocessing from
+// auto-generating ActionPoint prototypes BEFORE this struct is declared.
+// Required when compiling main.cpp through LeanbotSketch.ino.
+ActionPoint pollutionPoint(uint8_t location);
+ActionPoint storagePoint(uint8_t zeroBased);
+bool goToActionPoint(const ActionPoint &p);
+bool returnFromActionPoint(const ActionPoint &p);
+void turnTowardBlock(const ActionPoint &p);
+void turnBackFromBlock(const ActionPoint &p);
+uint8_t scanAtCurrentPoint(const ActionPoint &p);
+void manipulateAtCurrentPoint(const ActionPoint &p, uint8_t action,
+                              bool storageBlock = false);
+
 struct PollutionItem {
   uint8_t location;   // zone*4 + (slot-1), 0..31
   uint8_t color;
@@ -924,7 +938,7 @@ uint8_t scanAtCurrentPoint(const ActionPoint &p) {
 
 // Reproduces the existing helper motions: +/-45 deg, 80mm node TAKE,
 // 100mm marker TAKE/THROW, 120mm PUSH, then reverse and restore yaw.
-void manipulateAtCurrentPoint(const ActionPoint &p,uint8_t action,bool storageBlock=false) {
+void manipulateAtCurrentPoint(const ActionPoint &p,uint8_t action,bool storageBlock) {
   LbMotion.stopAndWait();
   if(action==MANIP_TAKE || action==MANIP_PUSH) LbGripper.open();
   turnTowardBlock(p);
