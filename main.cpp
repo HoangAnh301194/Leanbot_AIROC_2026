@@ -156,8 +156,8 @@ int line;
 int speed;
 // Digital 4-sensor line tracking: uses calibrated black/white bitmask only.
 // Corrections are initial tuning values; validate sensor orientation on hardware.
-const float LINE_TURN_SMALL = 0.35f;
-const float LINE_TURN_MEDIUM = 0.65f;
+const float LINE_TURN_SMALL = 0.50f;
+const float LINE_TURN_MEDIUM = 0.70f;
 const float LINE_TURN_LARGE = 1.00f;
 const unsigned long LINE_LOSS_HOLD_MS = 40;
 int lastLineTurn = 0; // -1: slow left wheel; +1: slow right wheel
