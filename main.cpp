@@ -558,13 +558,16 @@ void followingLine(int x, int y ){
 // Reserves: S1=Green, S3=Blue. Two-robot collision handling is
 // NOT implemented. This is a bench-testing route, not a field-
 // verified course map. Place robot ONLY at the specified start.
-// Start junction: (col=0,row=1), heading SOUTH. NOT at CTRL.
-// Map/grid approach positions and distances must be calibrated.
+// Start INSIDE CTRL (bottom-right cell), nominally at its center,
+// pointing SOUTHWEST (towards the grid vertex at col=2,row=3).
+// Exit CTRL using a PROVISIONAL open-loop approach to junction (2,3).
+// Physical heading, clearance and offset MUST be checked on the board.
 // ================================================================
 const int ABD_NAV_SPEED = 900;              // steps/s
 const int ABD_MOVE_RPM = 25;
 const int ABD_TURN_RPM = 20;
 const int ABD_GRID_PITCH_MM = 406;          // nominal: 1219.2 / 3
+const int ABD_CTRL_EXIT_MM = 287;            // nominal half-cell diagonal; tune
 const int ABD_JUNCTION_MIN_MM = 260;        // initial estimates
 const int ABD_JUNCTION_MAX_MM = 550;
 const unsigned long ABD_NAV_TIMEOUT_MS = 7000;
@@ -578,9 +581,9 @@ const int ABD_PLACE_CTRL_MM = 175;
 const int ABD_S1_LEFT_OFFSET_MM = 45;
 const int ABD_RESERVE_APPROACH_MM = 65;
 
-int abdCol = 0;
-int abdRow = 1;
-int abdHeading = 4;   // 0=N, 2=E, 4=S, 6=W; odd values = diagonals
+int abdCol = 2;
+int abdRow = 3;
+int abdHeading = 5;   // 0=N, 2=E, 4=S, 6=W; odd values = diagonals
 bool abdMissionFinished = false;
 
 void abdFail() {
@@ -739,6 +742,17 @@ void abdTakeS1() {
   // Pose is back at (2,3) only if this offset was accurately executed.
 }
 
+// Start inside CTRL and drive to the adjacent bottom-left grid vertex.
+// This does not rely on line detection while crossing the CTRL cell.
+// Assumes robot starts at CTRL center facing SOUTHWEST (heading=5).
+void abdExitCtrl() {
+  abdMoveMm(ABD_CTRL_EXIT_MM);
+  abdCol = 2;
+  abdRow = 3;
+  abdHeading = 5;
+  LbMotion.stopAndWait();
+}
+
 void abdExecuteMission() {
   // B4 Green: push original block into B diamond
   abdGoTo(1, 2);
@@ -769,11 +783,12 @@ void loop() {
   if (abdMissionFinished) return;
 
   LbMission.begin(TB1A + TB1B);
-  // Must physically start at junction (0,1) pointing south.
-  // If competition requires CTRL start, this route MUST be remapped.
-  abdCol = 0;
-  abdRow = 1;
-  abdHeading = 4;
+  // Place robot inside CTRL at the center, nose pointing southwest.
+  // The 287 mm exit distance is a geometrical estimate, not validated.
+  abdCol = 2;
+  abdRow = 3;
+  abdHeading = 5;
+  abdExitCtrl();
 
   abdExecuteMission();
   abdMissionFinished = true;
