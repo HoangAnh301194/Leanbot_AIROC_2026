@@ -1,0 +1,27 @@
+# Line + APDS9960 five-color V2 — test protocol
+
+This branch is experimental. **Do not merge or run at full speed before validating with the physical Leanbot.**
+
+## Scope
+- Line following: 4-bit calibrated `LbIRLine.read()/value()`, no analog. Three steering reductions (20/40/70%), 40 ms straight hold when mask is zero, then recovery in last known direction.
+- Junction detection still relies on `line == 15`; the original junction-counting logic was not changed.
+- APDS9960: sequential red/green/blue/off illumination with ambient subtraction, maximum 350 ms sample wait per illumination, classification into Red/Yellow/Green/Blue/Purple/Unknown.
+- Original motion/gripper routes preserved. The color-based mission now dispatches Red and Yellow explicitly; unexpected/failed reads are not silently classified as Red.
+
+## Known limitations / blockers
+1. `main.cpp` still invokes `di_thang`, `di_lui`, `re_phai`, `re_trai` without definitions in this repository's current source. These may be external Leanbot-Advanced helpers. Compilation will fail unless provided by the build environment. Do not guess their motion units.
+2. `followLine()` has an existing `while (LbIRLine.isBlackDetected())` guard. It can exit on `line == 0` before the new line-recovery controller gets to search. The 40 ms hold primarily applies where `followLineMotorOnly()` continues to be called (e.g., junction counting). A future change must separate the desired end-of-segment behavior from lost-line recovery.
+3. The 4-bit state-to-turn table preserves the original sketch's steering directions but does not prove actual individual bit ordering. Validate using `LbIRLine.print()` / LEDs on the robot.
+4. APDS color channel gains and ratios are provisional. Measure multiple samples for each actual block under the event's lighting and adjust gains/thresholds accordingly. `Unknown` is an intentional safety output.
+5. No local hardware compilation/robot test or CI setup was available in this repository.
+
+## Hardware test checklist
+1. Perform the existing manual calibration (`LbIRLine.doManualCalibration(TB1A)`).
+2. At low speed, move the four line sensors individually across a black strip and note the mask + corresponding turn direction. Do not increase speed if either steering direction is inverted.
+3. Test straight lines, gentle curves, sharp corners, junctions, and a short black-line gap; check that junctions are counted once.
+4. Use serial debugging to log `ObjRed`, `ObjGreen`, `ObjBlue`, and `Obj_detectColor()` for at least 10 readings per actual Red, Yellow, Green, Blue, Purple block and for no block. Record both successes and Unknowns.
+5. Compile the full project with any required Leanbot-Advanced motion-helper definitions, then run the complete mission at conservative speed.
+
+## Tunables
+- Line: `LINE_TURN_SMALL`, `LINE_TURN_MEDIUM`, `LINE_TURN_LARGE`, `LINE_LOSS_HOLD_MS`
+- Color: `COLOR_GAIN_R/G/B`, `COLOR_MIN_SIGNAL`, `COLOR_TIMEOUT_MS` and ratios inside `Obj_detectColor()`
