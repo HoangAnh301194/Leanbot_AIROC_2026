@@ -2,6 +2,7 @@
 //    by Leanbot Blockly Editor 2026-02-14
 
 #include <Leanbot.h>
+#include <string.h>
 // Motor command units: steps/second (LbMotion.runLR).
 // These are initial test values, not RPM conversions.
 const int TURN_STEPS_PER_SEC = 850;
