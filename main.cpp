@@ -99,6 +99,144 @@ void markStorageUsed(uint8_t index) {
     storage[index].used=true;
 }
 
+// ================================================================
+// USER CONFIG: seven pollution positions, colors learned ON THE RUN.
+// Edit only these seven locations and the six STORAGE_Sn definitions.
+// The seven example coordinates below are NOT competition positions.
+// ================================================================
+#define POLLUTION_1 "A2"
+#define POLLUTION_2 "B4"
+#define POLLUTION_3 "D3"
+#define POLLUTION_4 "C1"
+#define POLLUTION_5 "E2"
+#define POLLUTION_6 "F3"
+#define POLLUTION_7 "H1"
+
+enum DetectedColor : uint8_t {
+  COL_UNKNOWN=0, COL_RED=1, COL_YELLOW=2, COL_GREEN=3,
+  COL_BLUE=4, COL_PURPLE=5
+};
+enum PollutionStatus : uint8_t {
+  POL_PENDING=0, POL_CONTAINED=1, POL_NEUTRALIZED=2,
+  POL_RETURNED=3, POL_UNCERTAIN=4
+};
+enum AnchorType : uint8_t { ANCHOR_NODE=0, ANCHOR_MARKER=1 };
+enum ApproachSide : int8_t { LEFT_45=-1, STRAIGHT=0, RIGHT_45=1 };
+
+struct ActionPoint {
+  uint8_t type;
+  uint8_t node;       // reference junction
+  uint8_t next;       // next junction across marker (only for marker)
+  uint8_t heading;    // cardinal facing before object approach
+  int8_t side;        // -1 = left45, +1 = right45, 0 = straight
+};
+struct PollutionItem {
+  uint8_t location;   // zone*4 + (slot-1), 0..31
+  uint8_t color;
+  uint8_t status;
+};
+PollutionItem pollution[7];
+const char* const pollutionSettings[7] = {
+  POLLUTION_1, POLLUTION_2, POLLUTION_3, POLLUTION_4,
+  POLLUTION_5, POLLUTION_6, POLLUTION_7
+};
+bool missionConfigValid=true;
+
+// A,B,C,D,E,F,G,H in the 3x3 board:
+// A=(0,0), B=(1,0), C=(0,1), D=(2,0),
+// E=(1,1), F=(0,2), G=(2,1), H=(1,2).
+uint8_t zoneRow(uint8_t z) {
+  switch(z) {
+    case 0: case 2: case 5: return 0; // A,C,F
+    case 1: case 4: case 7: return 1; // B,E,H
+    default: return 2;               // D,G
+  }
+}
+uint8_t zoneCol(uint8_t z) {
+  switch(z) {
+    case 0: case 1: case 3: return 0;
+    case 2: case 4: case 6: return 1;
+    default: return 2;
+  }
+}
+
+// Location slots 1(NW),2(SW),3(NE),4(SE) of each zone.
+// Most are approached diagonally from the adjacent grid junction.
+// At the 3 rounded OUTER corners, use the nearest line MARKER
+// instead of attempting to stop at the curve itself.
+ActionPoint pollutionPoint(uint8_t location) {
+  uint8_t z=location/4,slot=location%4+1;
+  uint8_t r=zoneRow(z),c=zoneCol(z);
+  ActionPoint p={ANCHOR_NODE, (uint8_t)(4*r+c), 255, 1, RIGHT_45};
+  if(slot==1) { // NW pollution position; diagonally SE from top-left
+    p.node=(uint8_t)(4*r+c);p.heading=1;p.side=RIGHT_45;
+  } else if(slot==2) { // SW pollution; NE from bottom-left
+    p.node=(uint8_t)(4*(r+1)+c);p.heading=0;p.side=RIGHT_45;
+  } else if(slot==3) { // NE pollution; SW from top-right
+    p.node=(uint8_t)(4*r+c+1);p.heading=3;p.side=LEFT_45;
+  } else { // SE pollution; NW from bottom-right
+    p.node=(uint8_t)(4*(r+1)+c+1);p.heading=0;p.side=LEFT_45;
+  }
+  // A1 cannot use rounded J00. H00 approached from J01, heading WEST.
+  if(z==0 && slot==1) {
+    p={ANCHOR_MARKER,1,0,3,LEFT_45};
+  }
+  // F3 cannot use rounded J03. H02 approached from J02, heading EAST.
+  if(z==5 && slot==3) {
+    p={ANCHOR_MARKER,2,3,1,RIGHT_45};
+  }
+  // D2 cannot use rounded J30. H30 approached from J31, heading WEST.
+  if(z==3 && slot==2) {
+    p={ANCHOR_MARKER,13,12,3,RIGHT_45};
+  }
+  return p;
+}
+
+// Slot mapping from the field diagram:
+// S1(bottom H31), S3(bottom J32), S5(bottom H32).
+// S2(right V13), S4(right J23), S6(right V23).
+// Distance/approach angle need hardware validation for real block offsets.
+ActionPoint storagePoint(uint8_t zeroBased) {
+  switch(zeroBased) {
+    case 0: return {ANCHOR_MARKER,14,13,3,LEFT_45};  // S1
+    case 1: return {ANCHOR_MARKER,7,11,2,LEFT_45};   // S2
+    case 2: return {ANCHOR_NODE,14,255,2,STRAIGHT};  // S3
+    case 3: return {ANCHOR_NODE,11,255,1,STRAIGHT};  // S4
+    case 4: return {ANCHOR_MARKER,14,15,1,RIGHT_45}; // S5
+    default:return {ANCHOR_MARKER,11,15,2,LEFT_45};  // S6
+  }
+}
+
+bool initializePollution() {
+  Serial.println(F("POLLUTION_CONFIG_BEGIN"));
+  bool valid=true;
+  uint32_t used=0;
+  for(uint8_t i=0;i<7;i++) {
+    const char* p=pollutionSettings[i];
+    bool itemOK=(p[0]>='A' && p[0]<='H' &&
+                 p[1]>='1' && p[1]<='4' && p[2]=='\0');
+    if(!itemOK) {
+      valid=false;
+      pollution[i].location=255;
+      Serial.println(F("ERROR POLLUTION_LOCATION_FORMAT"));
+    } else {
+      uint8_t value=(uint8_t)((p[0]-'A')*4+(p[1]-'1'));
+      pollution[i].location=value;
+      if(used & (1UL<<value)) {
+        valid=false;Serial.println(F("ERROR DUPLICATE_POLLUTION_LOCATION"));
+      }
+      used|=(1UL<<value);
+    }
+    pollution[i].color=COL_UNKNOWN;
+    pollution[i].status=POL_PENDING;
+    Serial.print('P');Serial.print(i+1);Serial.print('=');
+    Serial.println(p);
+  }
+  Serial.println(F("POLLUTION_CONFIG_END"));
+  return valid;
+}
+
+
 
 
 
@@ -132,6 +270,7 @@ void setup() {
   Leanbot.begin();
   LbIRLine.doManualCalibration(TB1A);
   initializeStorage();
+  missionConfigValid = initializePollution();
 }
 
 
