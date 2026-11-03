@@ -464,11 +464,11 @@ void followLineUntilNthJunction(int n, int v) {
         notifyJunction(junctionCount);
 
         // Den junction thu n: cam bien o phia truoc truc banh.
-        // Tien them 20 mm de dua truc banh ve gan tam junction,
+        // Tien them 10 mm de dua truc banh ve gan tam junction,
         // sau do moi cho phep lenh xoay tiep theo.
         if (junctionCount >= n) {
           LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
-          LbMotion.waitDistanceMm(20);
+          LbMotion.waitDistanceMm(10);
           LbMotion.stopAndWait();
           return;
         }
@@ -698,6 +698,7 @@ void loop() {
   forwardMm(125);
   LbGripper.open();
   backwardMm(125);
+  turnLeft(45);   // Khoi phuc huong truoc khi quay phai 45 do de tha Blue.
 
   // 6. RETURN TO S1 TO TAKE blue (2 junction moi chang).
   followLineUntilNthJunction(2, 1500);
