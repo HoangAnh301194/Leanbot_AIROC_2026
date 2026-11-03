@@ -553,6 +553,32 @@ void followingLine(int x, int y ){
   followLine();
 }
 // folllowingLine(2000,300);
+// Small reusable wrappers around existing Leanbot motion API.
+// No coordinates, pose estimation, or automatic path planning.
+void turnRight(int angleDeg, int rpm = 20) {
+  LbMotion.runLRrpm(rpm, -rpm);
+  LbMotion.waitRotationDeg(angleDeg);
+  LbMotion.stopAndWait();
+}
+
+void turnLeft(int angleDeg, int rpm = 20) {
+  LbMotion.runLRrpm(-rpm, rpm);
+  LbMotion.waitRotationDeg(angleDeg);
+  LbMotion.stopAndWait();
+}
+
+void forwardMm(int distanceMm, int rpm = 25) {
+  LbMotion.runLRrpm(rpm, rpm);
+  LbMotion.waitDistanceMm(distanceMm);
+  LbMotion.stopAndWait();
+}
+
+void backwardMm(int distanceMm, int rpm = 25) {
+  LbMotion.runLRrpm(-rpm, -rpm);
+  LbMotion.waitDistanceMm(distanceMm);
+  LbMotion.stopAndWait();
+}
+
 // ================================================================
 // SIMPLE A-B-D MISSION (NO POSITION / HEADING ESTIMATION)
 // Fixed-color plan: A2 Yellow, B4 Green, D3 Blue.
@@ -575,20 +601,14 @@ void loop() {
 
   // 1. EXIT CTRL.
   // Robot nose points southwest at start.
-  LbMotion.runLRrpm(25, 25);
-  LbMotion.waitDistanceMm(287); // provisional: CTRL -> bottom road
-  LbMotion.stopAndWait();
+  forwardMm(287);
 
   // Face west; follow one junction to the left.
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(45);
-  LbMotion.stopAndWait();
+  turnRight(45);
   followLineUntilNthJunction(1, 900);
 
   // Face north; follow one junction toward B/D.
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
 
   // 2. PUSH B4 GREEN INTO B DIAMOND.
@@ -598,137 +618,77 @@ void loop() {
   // 3. PUSH D3 BLUE INTO D DIAMOND.
   // From north, turn 135 degrees left toward southwest.
   LbGripper.close();
-  LbMotion.runLRrpm(-20, 20);
-  LbMotion.waitRotationDeg(135);
-  LbMotion.stopAndWait();
-  LbMotion.runLRrpm(25, 25);
-  LbMotion.waitDistanceMm(120);
-  LbMotion.stopAndWait();
+  turnLeft(135);
+  forwardMm(120);
   LbGripper.open();
-  LbMotion.runLRrpm(-25, -25);
-  LbMotion.waitDistanceMm(120);
-  LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(135);
-  LbMotion.stopAndWait();
+  backwardMm(120);
+  turnRight(135);
 
   // 4. GET BLUE AT S3.
   // From current north-facing junction: east 1, south 1.
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
 
   LbGripper.open();
-  LbMotion.runLRrpm(25, 25);
-  LbMotion.waitDistanceMm(65);
-  LbMotion.stopAndWait();
+  forwardMm(65);
   LbGripper.close();
-  LbMotion.runLRrpm(-25, -25);
-  LbMotion.waitDistanceMm(65);
-  LbMotion.stopAndWait();
+  backwardMm(65);
 
   // 5. RETURN TO D AND PLACE BLUE.
   // Face west -> 1 junction, north -> 1 junction.
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
 
-  LbMotion.runLRrpm(-20, 20);
-  LbMotion.waitRotationDeg(135);
-  LbMotion.stopAndWait();
-  LbMotion.runLRrpm(25, 25);
-  LbMotion.waitDistanceMm(125);
-  LbMotion.stopAndWait();
+  turnLeft(135);
+  forwardMm(125);
   LbGripper.open();
-  LbMotion.runLRrpm(-25, -25);
-  LbMotion.waitDistanceMm(125);
-  LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(135);
-  LbMotion.stopAndWait();
+  backwardMm(125);
+  turnRight(135);
 
   // 6. RETURN TO S1 TO TAKE GREEN.
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
 
   // Provisional S1 offset from the S3 access point.
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
-  LbMotion.runLRrpm(25, 25);
-  LbMotion.waitDistanceMm(45);
-  LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
+  forwardMm(45);
+  turnLeft(90);
 
   LbGripper.open();
-  LbMotion.runLRrpm(25, 25);
-  LbMotion.waitDistanceMm(65);
-  LbMotion.stopAndWait();
+  forwardMm(65);
   LbGripper.close();
-  LbMotion.runLRrpm(-25, -25);
-  LbMotion.waitDistanceMm(65);
-  LbMotion.stopAndWait();
+  backwardMm(65);
 
-  LbMotion.runLRrpm(-20, 20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
-  LbMotion.runLRrpm(25, 25);
-  LbMotion.waitDistanceMm(45);
-  LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnLeft(90);
+  forwardMm(45);
+  turnRight(90);
 
   // 7. RETURN TO B AND PLACE GREEN.
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
   rotate45LeftThrow();
 
   // 8. TAKE YELLOW AT A2.
   // Continue west one junction, then north one junction.
-  LbMotion.runLRrpm(-20, 20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnLeft(90);
   followLineUntilNthJunction(1, 900);
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
   rotate45RightTake();
 
   // 9. RETURN WITH YELLOW TO CTRL.
   // East 2 junctions, south 1 junction, then diagonal to CTRL.
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(2, 900);
-  LbMotion.runLRrpm(20, -20);
-  LbMotion.waitRotationDeg(90);
-  LbMotion.stopAndWait();
+  turnRight(90);
   followLineUntilNthJunction(1, 900);
   rotate45RightThrow();
 
