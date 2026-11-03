@@ -630,22 +630,20 @@ void loop() {
   rotate45LeftPushCorner();
 
   // 3. PUSH D3 BLUE INTO D DIAMOND.
-  // From north, turn 135 degrees left toward southwest.
+  // Tiep can tu phia TAY BAC: robot quay sang DONG NAM de day.
+  // Sau khi lui ve junction, quay trai 45 do de bam line huong DONG.
   LbGripper.close();
-  turnLeft(135);
+  turnRight(135);
   forwardMm(120);
   LbGripper.open();
   backwardMm(120);
-
-  // Dang huong Tay Nam: quay TRAI 135 do -> huong Dong,
-  // thay cho quay phai 135 do roi quay phai 90 do.
-  turnLeft(135);
+  turnLeft(45);
 
   // 4. GET BLUE AT S3.
-  // Face east and follow one junction, then south one junction.
-  followLineUntilNthJunction(1, 1500);
+  // Moi chang di qua 2 junction (da cong them 1 junction).
+  followLineUntilNthJunction(2, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 1500);
+  followLineUntilNthJunction(2, 1500);
 
   LbGripper.open();
   forwardMm(65);
@@ -653,24 +651,23 @@ void loop() {
   backwardMm(65);
 
   // 5. RETURN TO D AND PLACE BLUE.
-  // Face west -> 1 junction, north -> 1 junction.
+  // Ve D: 2 junction moi chang.
   turnRight(90);
-  followLineUntilNthJunction(1, 1500);
+  followLineUntilNthJunction(2, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 1500);
+  followLineUntilNthJunction(2, 1500);
 
-  turnLeft(135);
+  // Tiep can tu TAY BAC, day theo huong DONG NAM; khong qua S1/S3/S5.
+  turnRight(135);
   forwardMm(125);
   LbGripper.open();
   backwardMm(125);
+  turnLeft(45);
 
-  // Dang huong Tay Nam: quay TRAI 135 do -> huong Dong.
-  turnLeft(135);
-
-  // 6. RETURN TO S1 TO TAKE GREEN.
-  followLineUntilNthJunction(1, 1500);
+  // 6. RETURN TO S1 TO TAKE GREEN (2 junction moi chang).
+  followLineUntilNthJunction(2, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 1500);
+  followLineUntilNthJunction(2, 1500);
 
   // Provisional S1 offset from the S3 access point.
   turnRight(90);
@@ -686,11 +683,11 @@ void loop() {
   forwardMm(45);
   turnRight(90);
 
-  // 7. RETURN TO B AND PLACE GREEN.
+  // 7. RETURN TO B AND PLACE GREEN (2 junction moi chang).
   turnRight(90);
-  followLineUntilNthJunction(1, 1500);
+  followLineUntilNthJunction(2, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 1500);
+  followLineUntilNthJunction(2, 1500);
   rotate45LeftThrow();
 
   // 8. TAKE YELLOW AT A2.
