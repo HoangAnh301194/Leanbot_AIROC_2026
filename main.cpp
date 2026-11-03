@@ -66,6 +66,26 @@ void rotate45RightThrow() {
 }
 
 // Describe this function...
+// Tha khoi tai goc o vuong: quay phai 45 do, tien 80 mm,
+// mo kep, lui ve va quay ve huong ban dau.
+// distanceMm co the dieu chinh theo tung goc A/B/C/...
+void rotate45RightThrowCorner(int distanceMm = 80) {
+  LbMotion.stopAndWait();
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
+  LbMotion.waitRotationDeg(45);
+  LbMotion.stopAndWait();
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
+  LbMotion.waitDistanceMm(distanceMm);
+  LbMotion.stopAndWait();
+  LbGripper.open();
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
+  LbMotion.waitDistanceMm(distanceMm);
+  LbMotion.stopAndWait();
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
+  LbMotion.waitRotationDeg(45);
+  LbMotion.stopAndWait();
+}
+
 void rotate45RightPushCorner() {
   LbGripper.close();
   LbMotion.stopAndWait();
@@ -139,6 +159,24 @@ void rotate45LeftThrow() {
 }
 
 // Describe this function...
+// Tha khoi tai goc o vuong ben trai, doi xung voi RightThrowCorner.
+void rotate45LeftThrowCorner(int distanceMm = 80) {
+  LbMotion.stopAndWait();
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
+  LbMotion.waitRotationDeg(45);
+  LbMotion.stopAndWait();
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
+  LbMotion.waitDistanceMm(distanceMm);
+  LbMotion.stopAndWait();
+  LbGripper.open();
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
+  LbMotion.waitDistanceMm(distanceMm);
+  LbMotion.stopAndWait();
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
+  LbMotion.waitRotationDeg(45);
+  LbMotion.stopAndWait();
+}
+
 void rotate45LeftPushCorner() {
   LbGripper.close();
   LbMotion.stopAndWait();
@@ -619,30 +657,25 @@ void loop() {
 
   // 1. EXIT CTRL VIA THE UPPER LINE (NOT THE LOWER S1/S3/S5 ROAD).
   // Dat Leanbot o CTRL, DA HUONG TAY BAC ngay tu dau.
-  forwardMm(50);       // Tien thang ve phia Tay Bac.
+  forwardMm(130);       // Tien thang ve phia Tay Bac.
   turnLeft(45);        // Tay Bac -> Tay, vao nhanh line phia tren.
-  followLineUntilNthJunction(2, 1500);
-
-  // Tai junction theo tuyen tren: re vao nhanh phuc vu A/B/D.
-  // Kiem tra tren sa ban vi so junction va huong re chua xac nhan.
-  turnRight(90);       // Tay -> Bac.
   followLineUntilNthJunction(2, 1500);
 
   // 2. PUSH B4 GREEN INTO B DIAMOND.
   // Approach from the southeast side; 45 deg left from north.
-  rotate45LeftPushCorner();
+  rotate45RightPushCorner();
 
   // 3. PUSH D3 BLUE INTO D DIAMOND.
   // Tiep can tu phia TAY BAC: robot quay sang DONG NAM de day.
   // Sau khi lui ve junction, quay trai 45 do de bam line huong DONG.
   LbGripper.close();
-  turnRight(135);
+  turnLeft(45);
   forwardMm(120);
   LbGripper.open();
   backwardMm(120);
-  turnLeft(45);
+  turnLeft(135);
 
-  // 4. GET BLUE AT S3.
+  // 4. GET Greeen AT S3.
   // Moi chang di qua 2 junction (da cong them 1 junction).
   followLineUntilNthJunction(2, 1500);
   turnRight(90);
@@ -655,59 +688,54 @@ void loop() {
 
   // 5. RETURN TO D AND PLACE BLUE.
   // Ve D: 2 junction moi chang.
-  turnRight(90);
+  turnRight(180);
   followLineUntilNthJunction(2, 1500);
-  turnRight(90);
+  turnLeft(90);
   followLineUntilNthJunction(2, 1500);
 
   // Tiep can tu TAY BAC, day theo huong DONG NAM; khong qua S1/S3/S5.
-  turnRight(135);
+  turnRight(45);
   forwardMm(125);
   LbGripper.open();
   backwardMm(125);
-  turnLeft(45);
 
-  // 6. RETURN TO S1 TO TAKE GREEN (2 junction moi chang).
+  // 6. RETURN TO S1 TO TAKE blue (2 junction moi chang).
   followLineUntilNthJunction(2, 1500);
   turnRight(90);
   followLineUntilNthJunction(2, 1500);
 
-  // Provisional S1 offset from the S3 access point.
-  turnRight(90);
-  forwardMm(45);
-  turnLeft(90);
-
-  LbGripper.open();
-  forwardMm(65);
-  LbGripper.close();
-  backwardMm(65);
-
-  turnLeft(90);
-  forwardMm(45);
-  turnRight(90);
-
-  // 7. RETURN TO B AND PLACE GREEN (2 junction moi chang).
-  turnRight(90);
-  followLineUntilNthJunction(2, 1500);
-  turnRight(90);
-  followLineUntilNthJunction(2, 1500);
-  rotate45LeftThrow();
-
-  // 8. TAKE YELLOW AT A2.
-  // Continue west one junction, then north one junction.
-  turnLeft(90);
-  followLineUntilNthJunction(1, 1500);
-  turnRight(90);
-  followLineUntilNthJunction(1, 1500);
+// take the Yellow cube 
   rotate45RightTake();
+  turnRight(180);
+  //return crl wwith yellow cube 
+  followLineUntilNthJunction (2,1500);
+  turnLeft(90);
+  followLineUntilNthJunction(4,1500);
+  turnRight(45);
+  forwardMm(300);
+  LbGripper.open(); // through the yellow cube away 
+  backwardMm(300);
+  
+  // take the blue cube 
 
-  // 9. RETURN WITH YELLOW TO CTRL.
-  // East 2 junctions, south 1 junction, then diagonal to CTRL.
-  turnRight(90);
-  followLineUntilNthJunction(2, 1500);
-  turnRight(90);
-  followLineUntilNthJunction(1, 1500);
-  rotate45RightThrow();
+  turnLeft(45);
+  followLineUntilNthJunction (2,1500);
+  turnRight(45);
+  forwardMm(85);
+  LbGripper.close();
+  backwardMm(85);
+
+  turnRight(45);
+  followLineUntilNthJunction(2,1500);
+  rotate45RightThrowCorner(); // Goc o vuong: 80 mm, thay cho throw thuong 100 mm.
+
+
+// return base CRL 
+
+  turnRight(180);
+  followLineUntilNthJunction(2,1500);
+  turnLeft(45);
+  forwardMm(200);
 
   LbMotion.stopAndWait();
   Leanbot.tone(1500, 200);
