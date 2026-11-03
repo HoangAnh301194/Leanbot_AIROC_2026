@@ -80,50 +80,98 @@ void backwardMm(int distanceMm, int stepsPerSec = MOVE_STEPS_PER_SEC) {
 }
 
 // ================================================================
-// MAP SURVEY: Jrc = r*4+c. Checkpoints Hrc / Vrc.
-// J00, J03, J30 are rounded curves; J33 assumed rounded for the
-// test route (verify physical corner). NEVER turn in place on curves.
-// All 24 physical grid edges are covered by the route below.
-// Survey-only firmware: no old mission or gripper actions.
+// HEADING-AWARE DIJKSTRA: grid 4x4, 16 geometric points, 64 states.
+// Goals are genuine navigable junctions only, not curved corners.
+// Rounded corners J00/J03/J30 are mandatory uninterrupted turns.
+// J33 is the initial staging point, facing WEST. Other tests do not
+// deliberately navigate back to J33 (corner not reliably localized).
+//
+// Static arrays: safe for 2 KB RAM microcontrollers. No malloc/String.
 // ================================================================
-const uint8_t MAP_ROUTE[] = {
-  15,14,13,14,10,6,2,1,2,3,7,6,5,1,0,4,5,9,13,12,8,4,8,9,10,11,7,11,15
-};
-const int MAP_ROUTE_SIZE = sizeof(MAP_ROUTE) / sizeof(MAP_ROUTE[0]);
-bool mapCovered[24] = {false};
-int mapCoveredCount = 0;
-int surveyHeading = 3; // NORTH=0, EAST=1, SOUTH=2, WEST=3
-int surveyCurrentNode = 15;
-unsigned long surveyLostAt = 0;
-int surveyLastTurn = 0;
+#define STATE_COUNT 64
+#define RANDOM_TEST_COUNT 5
+#define INVALID_STATE 255
+#define EDGE_COST 300U
+#define TURN_90_COST 120U
+#define TURN_180_COST 270U
 
-bool surveyCurve(int node) {
-  return node == 0 || node == 3 || node == 12 || node == 15;
+// Physical node id: J(row)(col) -> row*4+col.
+const uint8_t START_NODE = 15; // J33
+const uint8_t FIRST_GOAL = 4; // J10, NOT integer node index 10
+const uint8_t START_HEADING = 3; // WEST
+
+uint8_t currentNode = START_NODE;
+uint8_t currentHeading = START_HEADING;
+unsigned long surveyLostAt = 0;
+int8_t surveyLastTurn = 0;
+
+// Fixed-memory Dijkstra working set (~450 bytes).
+uint16_t pathCost[STATE_COUNT];
+uint8_t pathParent[STATE_COUNT];
+uint8_t pathViaCurve[STATE_COUNT];
+uint8_t settled[STATE_COUNT];
+uint8_t routeStates[STATE_COUNT];
+uint8_t routeVias[STATE_COUNT];
+uint8_t routeLength = 0;
+
+bool isCurveNode(uint8_t n) {
+  return n == 0 || n == 3 || n == 12;
 }
 
-int surveyDirection(int a, int b) {
-  int ar=a/4, ac=a%4, br=b/4, bc=b%4;
-  if (ar==br && bc==ac+1) return 1; // east
-  if (ar==br && bc==ac-1) return 3; // west
-  if (ac==bc && br==ar+1) return 2; // south
-  if (ac==bc && br==ar-1) return 0; // north
+bool isGoalNode(uint8_t n) {
+  return n < 16 && !isCurveNode(n) && n != 15;
+}
+
+int8_t gridNeighbor(uint8_t n, uint8_t dir) {
+  const uint8_t row=n/4, col=n%4;
+  if (dir==0 && row>0) return n-4; // NORTH
+  if (dir==1 && col<3) return n+1; // EAST
+  if (dir==2 && row<3) return n+4; // SOUTH
+  if (dir==3 && col>0) return n-1; // WEST
   return -1;
 }
 
-void surveyNodePrint(int n) {
-  Serial.print("J");
-  Serial.print(n/4);
-  Serial.print(n%4);
-  Serial.print(" (row=");
-  Serial.print(n/4);
-  Serial.print(",col=");
-  Serial.print(n%4);
-  Serial.print(")");
+// Return a traversable route segment: one straight edge, or a
+// two-edge continuous curve. Curves cannot be endpoints or spin points.
+bool planHop(uint8_t from, uint8_t dir,
+             uint8_t &dest, uint8_t &endHeading, uint8_t &via) {
+  if (from==15 && dir!=3) return false; // initial J33 exit WEST only
+  int8_t adjacent=gridNeighbor(from,dir);
+  if (adjacent<0 || adjacent==15) return false;
+  via=INVALID_STATE;
+  dest=(uint8_t)adjacent;
+  endHeading=dir;
+  if (isCurveNode(dest)) {
+    via=dest;
+    int8_t exitNode=-1;
+    for (uint8_t d=0;d<4;d++) {
+      int8_t k=gridNeighbor(via,d);
+      if (k>=0 && k!=from) {
+        if (exitNode>=0) return false; // not a true two-leg curve
+        exitNode=k;
+        endHeading=d;
+      }
+    }
+    if (exitNode<0 || exitNode==15) return false;
+    dest=(uint8_t)exitNode;
+  }
+  return isGoalNode(dest);
 }
 
-void surveyMarkerPrint(int a, int b) {
-  Serial.print(a/4 == b/4 ? 'H' : 'V');
-  if (a/4 == b/4) {
+void printNode(uint8_t n) {
+  Serial.print('J');
+  Serial.print(n/4);
+  Serial.print(n%4);
+  Serial.print(F("(r="));
+  Serial.print(n/4);
+  Serial.print(F(",c="));
+  Serial.print(n%4);
+  Serial.print(')');
+}
+
+void printMarker(uint8_t a, uint8_t b) {
+  Serial.print(a/4==b/4 ? 'H' : 'V');
+  if (a/4==b/4) {
     Serial.print(a/4);
     Serial.print(min(a%4,b%4));
   } else {
@@ -132,29 +180,107 @@ void surveyMarkerPrint(int a, int b) {
   }
 }
 
-int surveyEdgeIndex(int a, int b) {
-  if (a/4 == b/4 && abs(a-b)==1) return (a/4)*3 + min(a%4,b%4);
-  if (a%4 == b%4 && abs(a-b)==4) return 12 + min(a/4,b/4)*4 + a%4;
+int8_t gridDirection(uint8_t from,uint8_t to) {
+  for(uint8_t d=0;d<4;d++) if(gridNeighbor(from,d)==to) return (int8_t)d;
   return -1;
 }
 
-void surveyMarkCovered(int a, int b) {
-  int e=surveyEdgeIndex(a,b);
-  if (e>=0 && !mapCovered[e]) {
-    mapCovered[e]=true;
-    ++mapCoveredCount;
+uint16_t turnPenalty(uint8_t from,uint8_t to) {
+  uint8_t d=(to+4-from)%4;
+  if(d==0) return 0;
+  if(d==2) return TURN_180_COST;
+  return TURN_90_COST;
+}
+
+bool findPath(uint8_t start, uint8_t heading, uint8_t goal) {
+  routeLength=0;
+  if(start>=16 || heading>=4 || !isGoalNode(goal)) return false;
+  for(uint8_t i=0;i<STATE_COUNT;i++) {
+    pathCost[i]=65535U;
+    pathParent[i]=INVALID_STATE;
+    pathViaCurve[i]=INVALID_STATE;
+    settled[i]=0;
   }
+  uint8_t startState=(uint8_t)(start*4+heading);
+  pathCost[startState]=0;
+  for(uint8_t iter=0;iter<STATE_COUNT;iter++) {
+    uint8_t best=INVALID_STATE;
+    uint16_t bestCost=65535U;
+    for(uint8_t i=0;i<STATE_COUNT;i++) {
+      if(!settled[i] && pathCost[i]<bestCost) {
+        best=i;
+        bestCost=pathCost[i];
+      }
+    }
+    if(best==INVALID_STATE) break;
+    settled[best]=1;
+    uint8_t node=best/4, facing=best%4;
+    if(node==goal) break;
+    for(uint8_t dir=0;dir<4;dir++) {
+      uint8_t dest,ending,via;
+      if(!planHop(node,dir,dest,ending,via)) continue;
+      uint8_t next=(uint8_t)(dest*4+ending);
+      uint16_t cost=(uint16_t)(EDGE_COST*(via==INVALID_STATE?1U:2U));
+      cost=(uint16_t)(cost+turnPenalty(facing,dir));
+      if(cost>65535U-bestCost) continue;
+      uint16_t candidate=(uint16_t)(bestCost+cost);
+      if(candidate<pathCost[next]) {
+        pathCost[next]=candidate;
+        pathParent[next]=best;
+        pathViaCurve[next]=via;
+      }
+    }
+  }
+
+  uint8_t goalState=INVALID_STATE;
+  uint16_t minCost=65535U;
+  for(uint8_t h=0;h<4;h++) {
+    uint8_t st=(uint8_t)(goal*4+h);
+    if(pathCost[st]<minCost) {
+      minCost=pathCost[st];goalState=st;
+    }
+  }
+  if(goalState==INVALID_STATE) return false;
+
+  // Backtrack into fixed arrays, then reverse to start -> goal.
+  uint8_t p=goalState;
+  while(true) {
+    if(routeLength>=STATE_COUNT) return false;
+    routeStates[routeLength]=p;
+    routeVias[routeLength]=pathViaCurve[p];
+    routeLength++;
+    if(p==startState) break;
+    p=pathParent[p];
+    if(p==INVALID_STATE) return false;
+  }
+  for(uint8_t i=0;i<routeLength/2;i++) {
+    uint8_t j=(uint8_t)(routeLength-1-i);
+    uint8_t tmp=routeStates[i];routeStates[i]=routeStates[j];routeStates[j]=tmp;
+    tmp=routeVias[i];routeVias[i]=routeVias[j];routeVias[j]=tmp;
+  }
+  Serial.print(F("PLAN start="));printNode(start);
+  Serial.print(F(" heading="));Serial.print(heading);
+  Serial.print(F(" goal="));printNode(goal);
+  Serial.print(F(" cost="));Serial.println(minCost);
+  for(uint8_t i=0;i<routeLength;i++) {
+    Serial.print(F(" ROUTE_STEP "));Serial.print(i);
+    Serial.print(' ');printNode(routeStates[i]/4);
+    if(routeVias[i]!=INVALID_STATE) {
+      Serial.print(F(" via_curve="));printNode(routeVias[i]);
+    }
+    Serial.println();
+  }
+  return true;
 }
 
-void surveyTurnToward(int wanted) {
-  int diff=(wanted-surveyHeading+4)%4;
-  if (diff==1) turnRight(90);
-  else if (diff==2) turnRight(180);
-  else if (diff==3) turnLeft(90);
-  surveyHeading=wanted;
+void turnToward(uint8_t wanted) {
+  uint8_t d=(wanted+4-currentHeading)%4;
+  if(d==1) turnRight(90);
+  else if(d==2) turnRight(180);
+  else if(d==3) turnLeft(90);
+  currentHeading=wanted;
 }
 
-// Restricted-speed line follower for survey (no 2000-step spikes).
 void surveyFollowMotor() {
   if (line==0) {
     if (!surveyLostAt) surveyLostAt=millis();
@@ -181,182 +307,164 @@ void surveyFollowMotor() {
   LbMotion.runLR(l,r);
 }
 
-// One leg or two legs joined by a physical curve.
-// Serial positions are PREDICTED. '1111' detections are OBSERVED.
-// Marker sequence: straight = midpoint + destination junction;
-// curve = midpoint-in + midpoint-out + destination junction.
-// Last edge ending at J33 is distance-terminated (no junction at corner).
-bool surveyTraverse(int from, int via, int to, bool isCurve) {
-  int firstTo=isCurve?via:to;
-  int wanted=surveyDirection(from,firstTo);
-  if (wanted<0) {
-    Serial.println("ERROR INVALID_EDGE");
+// Traverse one planned hop, optionally continuing through a rounded
+// corner without stop/turn. Full-black observations are validated against
+// the edge pattern, not confused with the graph node identifiers.
+bool traverseHop(uint8_t dest,uint8_t via) {
+  uint8_t from=currentNode;
+  bool curved=(via!=INVALID_STATE);
+  int8_t firstDir=gridDirection(from,curved?via:dest);
+  int8_t finalDir=curved?gridDirection(via,dest):firstDir;
+  if(firstDir<0 || finalDir<0) {
+    Serial.println(F("ERROR INVALID_HOP"));
     return false;
   }
-  if (!surveyCurve(from)) surveyTurnToward(wanted);
-  else if (surveyHeading!=wanted) {
-    Serial.println("ERROR CORNER_HEADING (cannot spin at curve)");
-    return false;
+  if(from==15) {
+    if(currentHeading!=(uint8_t)firstDir) {
+      Serial.println(F("ERROR J33_START_HEADING"));
+      return false;
+    }
+  } else {
+    turnToward((uint8_t)firstDir);
   }
 
-  const bool lastCorner=(to==15 && !isCurve);
-  const int expected=isCurve?3:(lastCorner?1:2);
-  const int distanceLimit=isCurve?SURVEY_MAX_CURVE_MM:SURVEY_MAX_EDGE_MM;
-  const unsigned long timeLimit=isCurve?SURVEY_CURVE_TIMEOUT_MS:SURVEY_EDGE_TIMEOUT_MS;
+  // Each straight edge has a middle bar + destination full-black.
+  // Curved two-edge hop has: bar 1, bar 2, destination junction.
+  uint8_t expected=curved?3:2;
+  const uint16_t maxDist=curved?SURVEY_MAX_CURVE_MM:SURVEY_MAX_EDGE_MM;
+  const unsigned long maxMs=curved?SURVEY_CURVE_TIMEOUT_MS:SURVEY_EDGE_TIMEOUT_MS;
+  Serial.print(F("EDGE_START from="));printNode(from);
+  if(curved){Serial.print(F(" via_curve="));printNode(via);}
+  Serial.print(F(" to="));printNode(dest);
+  Serial.print(F(" expected_1111="));Serial.println(expected);
 
-  Serial.print("EDGE_START from=");
-  surveyNodePrint(from);
-  if (isCurve) {
-    Serial.print(" via_curve=");
-    surveyNodePrint(via);
-  }
-  Serial.print(" to=");
-  surveyNodePrint(to);
-  Serial.print(" expected_1111=");
-  Serial.print(expected);
-  Serial.print(" dir=");
-  Serial.println(wanted);
+  uint8_t observed=0,blackStreak=0;
+  bool lockBlack=true; // do not recount current junction
+  unsigned long whiteAt=0,startAt=millis(),lastSeen=startAt;
+  long startMm=LbMotion.getDistanceMm(),previousMarkerMm=-1;
+  surveyLostAt=0;
+  surveyLastTurn=0;
 
-  int markerCount=0, blackStreak=0;
-  bool locked=true;  // do not count the departure node as a new marker
-  unsigned long whiteStart=0, started=millis(), lastLineSeen=started;
-  long startDistance=LbMotion.getDistanceMm(), firstMarkAt=-1;
-  unsigned long lastRgbUpdate=0;
-
-  while (true) {
+  while(true) {
     LbIRLine.read();
     line=LbIRLine.value();
     unsigned long now=millis();
-    long dist=abs(LbMotion.getDistanceMm()-startDistance);
-
-    if (line!=0) lastLineSeen=now;
-    if ((unsigned long)(now-lastLineSeen)>SURVEY_LINE_LOST_MS ||
-        (unsigned long)(now-started)>timeLimit || dist>distanceLimit) {
+    long travel=LbMotion.getDistanceMm()-startMm;
+    if(travel<0) travel=-travel;
+    if(line!=0) lastSeen=now;
+    if((unsigned long)(now-lastSeen)>SURVEY_LINE_LOST_MS ||
+       (unsigned long)(now-startAt)>maxMs || travel>maxDist) {
       LbMotion.stopAndWait();
-      Serial.print("ERROR SENSOR_LOSS_OR_TIMEOUT from=");
-      surveyNodePrint(from);
-      Serial.print(" to=");
-      surveyNodePrint(to);
-      Serial.print(" read_1111=");
-      Serial.print(markerCount);
-      Serial.print(" odom_mm=");
-      Serial.println(dist);
+      Serial.print(F("ERROR LOST_LINE_TIMEOUT_OR_DISTANCE mm="));
+      Serial.print(travel);
+      Serial.print(F(" marker_count="));Serial.println(observed);
       return false;
     }
-
     surveyFollowMotor();
-    if ((unsigned long)(now-lastRgbUpdate)>=40UL) {
-      LbRGB.clear();
-      LbIRLine.displayOnRGB(0x00ff00);
-      lastRgbUpdate=now;
-    }
-
-    if (line==15) {
-      whiteStart=0;
-      if (blackStreak<SURVEY_BLACK_SAMPLES) ++blackStreak;
-      if (!locked && blackStreak>=SURVEY_BLACK_SAMPLES) {
-        locked=true;
-        ++markerCount;
-        if (markerCount==1) firstMarkAt=dist;
-        Serial.print("MARKER observed_1111 #");
-        Serial.print(markerCount);
-        Serial.print(" odom_mm=");
-        Serial.print(dist);
-        Serial.print(" expected=");
-        if (!isCurve || markerCount==1) {
-          surveyMarkerPrint(from,firstTo);
-        } else if (markerCount==2) {
-          surveyMarkerPrint(via,to);
-        } else {
-          surveyNodePrint(to);
+    if(line==15) {
+      whiteAt=0;
+      if(blackStreak<SURVEY_BLACK_SAMPLES) blackStreak++;
+      if(!lockBlack && blackStreak>=SURVEY_BLACK_SAMPLES) {
+        lockBlack=true;
+        observed++;
+        Serial.print(F("MARKER #"));Serial.print(observed);
+        Serial.print(F(" odom_mm="));Serial.print(travel);
+        Serial.print(F(" expected="));
+        if(observed==expected) printNode(dest);
+        else if(curved && observed==2) printMarker(via,dest);
+        else printMarker(from,curved?via:dest);
+        if(previousMarkerMm>=0) {
+          long gap=travel-previousMarkerMm;
+          Serial.print(F(" gap_mm="));Serial.print(gap);
+          // Earlier survey found ~170 mm between bar and following
+          // junction. Between two curved-edge bars the gap is longer.
+          if((!curved || observed==3) && (gap<105 || gap>235)) {
+            LbMotion.stopAndWait();
+            Serial.println(F(" ERROR MARKER_SPACING"));
+            return false;
+          }
         }
         Serial.println();
-        if (markerCount>expected) {
+        previousMarkerMm=travel;
+        if(observed>expected) {
           LbMotion.stopAndWait();
-          Serial.println("ERROR TOO_MANY_MARKERS");
+          Serial.println(F("ERROR EXTRA_1111"));
           return false;
         }
-        if (!lastCorner && markerCount==expected) {
+        if(observed==expected) {
           LbMotion.stopAndWait();
-          // The sensor is ahead of the wheel axle: center at final junction.
-          forwardMm(10,SURVEY_SPEED_STEPS);
+          forwardMm(10,SURVEY_SPEED_STEPS); // sensor -> axle offset
           break;
         }
       }
     } else {
       blackStreak=0;
-      if (locked) {
-        if (!whiteStart) whiteStart=now;
-        if ((unsigned long)(now-whiteStart)>=SURVEY_EXIT_BLACK_MS) {
-          locked=false;
-        }
+      if(lockBlack) {
+        if(!whiteAt) whiteAt=now;
+        if((unsigned long)(now-whiteAt)>=SURVEY_EXIT_BLACK_MS) lockBlack=false;
       }
-    }
-    // The last corner J33 has no true junction mark. Travel approximately
-    // twice the distance to the midpoint marker, then stop on odometry.
-    if (lastCorner && markerCount==1 && firstMarkAt>20 &&
-        dist>=2*firstMarkAt) {
-      LbMotion.stopAndWait();
-      Serial.println("CORNER_END J33 is ODOMETRY_INFERRED");
-      break;
     }
   }
 
-  surveyMarkCovered(from,firstTo);
-  if (isCurve) surveyMarkCovered(via,to);
-  surveyCurrentNode=to; // estimated by map, NOT a measured global position
-  surveyHeading=isCurve?surveyDirection(via,to):wanted;
-  Serial.print("NODE_PREDICTED ");
-  surveyNodePrint(surveyCurrentNode);
-  Serial.print(" heading_NESW=");
-  Serial.print(surveyHeading);
-  Serial.print(" observed_1111=");
-  Serial.print(markerCount);
-  Serial.print(" covered_edges=");
-  Serial.print(mapCoveredCount);
-  Serial.println("/24");
+  currentNode=dest;
+  currentHeading=(uint8_t)finalDir;
+  Serial.print(F("NODE_PREDICTED "));printNode(currentNode);
+  Serial.print(F(" heading_NESW="));Serial.println(currentHeading);
   return true;
 }
 
-void surveyAllLines() {
-  LbMotion.stopAndWait();
-  Serial.println("MAP_SURVEY_START: place at J33 facing WEST along bottom line");
-  Serial.println("REMOVE all blocks; check path and clearance before running");
-  Serial.println("Coordinates are graph indices, NOT absolute x/y measurements");
-  Serial.println("Calibrate expected FULL_BLACK events and distances on real field");
-  LbMission.begin(TB1A + TB1B);
-  bool ok=true;
-  for (int i=0;i<MAP_ROUTE_SIZE-1;) {
-    int from=MAP_ROUTE[i];
-    int to=MAP_ROUTE[i+1];
-    bool curved=surveyCurve(to) && i+2<MAP_ROUTE_SIZE;
-    if (curved) {
-      int next=MAP_ROUTE[i+2];
-      // At curves, go around in one continuous line-following movement.
-      if (surveyDirection(to,next)<0 || next==from) {
-        Serial.println("ERROR INVALID_CURVE_TRANSITION");
-        ok=false;
-        break;
-      }
-      ok=surveyTraverse(from,to,next,true);
-      i+=2;
-    } else {
-      ok=surveyTraverse(from,255,to,false);
-      ++i;
+bool navigateTo(uint8_t goal) {
+  if(!findPath(currentNode,currentHeading,goal)) {
+    Serial.println(F("ERROR NO_PATH"));
+    return false;
+  }
+  // Planner output is not recomputed during a single trip. If a
+  // checkpoint verification fails, stop instead of extrapolating.
+  for(uint8_t i=1;i<routeLength;i++) {
+    uint8_t dest=routeStates[i]/4;
+    uint8_t via=routeVias[i];
+    if(!traverseHop(dest,via)) {
+      Serial.print(F("NAV_ABORT last_confirmed="));printNode(currentNode);
+      Serial.println();
+      return false;
     }
-    if (!ok) break;
   }
   LbMotion.stopAndWait();
-  Serial.print(ok && mapCoveredCount==24 ?
-               "MAP_SURVEY_DONE covered=" : "MAP_SURVEY_STOPPED covered=");
-  Serial.print(mapCoveredCount);
-  Serial.println("/24");
-  Leanbot.tone(ok && mapCoveredCount==24 ? 1500 : 500, 400);
+  Serial.print(F("ARRIVED "));printNode(currentNode);
+  Serial.println();
+  return true;
+}
+
+void runNavigationTest() {
+  LbMotion.stopAndWait();
+  Serial.println(F("DIJKSTRA_TEST_START from J33 facing WEST"));
+  Serial.println(F("FIRST_GOAL=J10 (row 1, col 0); then 5 random junctions"));
+  Serial.println(F("REMOVE ALL BLOCKS. No gripper operations."));
+  LbMission.begin(TB1A + TB1B);
+
+  bool ok=navigateTo(FIRST_GOAL);
+  if(ok) {
+    // Random among navigable junctions only; no curve or J33 target.
+    randomSeed(micros());
+    for(uint8_t test=0;test<RANDOM_TEST_COUNT;test++) {
+      uint8_t goal;
+      do {
+        goal=(uint8_t)random(0,16);
+      } while(!isGoalNode(goal) || goal==currentNode);
+      Serial.print(F("RANDOM_TEST #"));Serial.print(test+1);
+      Serial.print(F(" TARGET="));printNode(goal);Serial.println();
+      if(!navigateTo(goal)){ok=false;break;}
+    }
+  }
+  LbMotion.stopAndWait();
+  Serial.println(ok?F("NAV_TEST_DONE"):F("NAV_TEST_ABORTED"));
+  Leanbot.tone(ok?1500:500,400);
   LbMission.end();
 }
+
 void loop() {
-  static bool surveyDone = false;
-  if (surveyDone) return;
-  surveyDone = true;
-  surveyAllLines();
+  static bool alreadyRun=false;
+  if(alreadyRun) return;
+  alreadyRun=true;
+  runNavigationTest();
 }
