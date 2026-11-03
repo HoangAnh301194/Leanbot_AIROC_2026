@@ -425,8 +425,13 @@ void followLineUntilNthJunction(int n, int v) {
         // Phat buzzer va hien thi LED
         notifyJunction(junctionCount);
 
-        // Ket thuc khi gap nga tu thu n
+        // Den junction thu n: cam bien o phia truoc truc banh.
+        // Tien them 20 mm de dua truc banh ve gan tam junction,
+        // sau do moi cho phep lenh xoay tiep theo.
         if (junctionCount >= n) {
+          LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
+          LbMotion.waitDistanceMm(20);
+          LbMotion.stopAndWait();
           return;
         }
       }
@@ -611,15 +616,14 @@ void loop() {
 
   // 1. EXIT CTRL.
   // Robot nose points southwest at start.
-  forwardMm(260);
+  forwardMm(50);
 
   // Face west; follow one junction to the left.
   turnRight(45);
   followLineUntilNthJunction(2, 1500);
-
   // Face north; follow one junction toward B/D.
   turnRight(90);
-  followLineUntilNthJunction(1, 1500);
+  followLineUntilNthJunction(2, 1500);
 
   // 2. PUSH B4 GREEN INTO B DIAMOND.
   // Approach from the southeast side; 45 deg left from north.
@@ -632,11 +636,13 @@ void loop() {
   forwardMm(120);
   LbGripper.open();
   backwardMm(120);
-  turnRight(135);
+
+  // Dang huong Tay Nam: quay TRAI 135 do -> huong Dong,
+  // thay cho quay phai 135 do roi quay phai 90 do.
+  turnLeft(135);
 
   // 4. GET BLUE AT S3.
-  // From current north-facing junction: east 1, south 1.
-  turnRight(90);
+  // Face east and follow one junction, then south one junction.
   followLineUntilNthJunction(1, 1500);
   turnRight(90);
   followLineUntilNthJunction(1, 1500);
@@ -657,10 +663,11 @@ void loop() {
   forwardMm(125);
   LbGripper.open();
   backwardMm(125);
-  turnRight(135);
+
+  // Dang huong Tay Nam: quay TRAI 135 do -> huong Dong.
+  turnLeft(135);
 
   // 6. RETURN TO S1 TO TAKE GREEN.
-  turnRight(90);
   followLineUntilNthJunction(1, 1500);
   turnRight(90);
   followLineUntilNthJunction(1, 1500);
