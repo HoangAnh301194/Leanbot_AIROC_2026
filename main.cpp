@@ -795,6 +795,7 @@ bool navigateTo(uint8_t goal) {
 
 enum ManipAction : uint8_t { MANIP_TAKE=1,MANIP_PUSH=2,MANIP_THROW=3 };
 bool atMarker=false;
+bool insideCRL=true;
 unsigned long missionStartedAt=0;
 
 void failStop(const __FlashStringHelper* why) {
@@ -841,8 +842,11 @@ bool followOneEvent(bool expectedMarker) {
       if(blackStreak<SURVEY_BLACK_SAMPLES)blackStreak++;
       if(!locked && blackStreak>=SURVEY_BLACK_SAMPLES) {
         LbMotion.stopAndWait();
-        if(d<MIN_SINGLE_MARKER_MM) {
-          Serial.print(F("ERROR FALSE_MARKER odom_mm="));Serial.println(d);
+        if(d<MIN_SINGLE_MARKER_MM ||
+           (expectedMarker && d>230) ||
+           (!expectedMarker && (d<105 || d>260))) {
+          Serial.print(F("ERROR HALF_EDGE_MARKER_DISTANCE odom_mm="));
+          Serial.println(d);
           return false;
         }
         Serial.print(expectedMarker ? F("MARKER_ARRIVED mm=") :
@@ -951,6 +955,7 @@ bool exitCRLAndLocalize() {
   currentNode=10;currentHeading=3;atMarker=false; // J22, WEST inferred
   if(!traverseHop(9,INVALID_STATE)) return false; // J21 confirmed by 1111 count
   Serial.println(F("CRL_EXIT_LOCALIZED_AT_J21"));
+  insideCRL=false;
   return true;
 }
 
@@ -971,11 +976,15 @@ bool enterCRL(bool resume) {
   forwardMm(CRL_DIAGONAL_MM);
   LbGripper.open();
   Serial.println(F("CRL_REACHED_BLOCK_RELEASED_IF_CARRIED"));
-  if(resume) {
+  // Re-check remaining time AFTER the journey back to CRL.
+  if(resume && enoughTime()) {
     backwardMm(CRL_DIAGONAL_MM);
     turnRight(135); // from SE to WEST
     currentNode=10;currentHeading=3;
+    insideCRL=false;
     Serial.println(F("CRL_EXIT_READY J22 heading=WEST"));
+  } else {
+    insideCRL=true;
   }
   return true;
 }
@@ -1074,7 +1083,7 @@ void runAutonomousMission() {
     failStop(F("FAILED_TO_LOCALIZE_AFTER_CRL_EXIT"));LbMission.end();return;
   }
   bool ok=true;
-  while(enoughTime()) {
+  while(!insideCRL && enoughTime()) {
     int8_t next=chooseNextUnknown();
     if(next<0) break;
     if(!processPollution((uint8_t)next)) {
@@ -1084,7 +1093,7 @@ void runAutonomousMission() {
     // using the stale map pose for any new planning.
     if(!enoughTime())break;
   }
-  if(ok && !atMarker) {
+  if(ok && !insideCRL && !atMarker) {
     if(currentNode!=10 || currentHeading!=3)
       Serial.println(F("RETURN_FINAL_TO_CRL"));
     if(!enterCRL(false))ok=false;
