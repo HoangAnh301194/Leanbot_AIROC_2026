@@ -5,7 +5,7 @@
 #include <Arduino_APDS9960.h>
 // Motor command units: steps/second (LbMotion.runLR).
 // These are initial test values, not RPM conversions.
-const int TURN_STEPS_PER_SEC = 1000;
+const int TURN_STEPS_PER_SEC = 850;
 const int MOVE_STEPS_PER_SEC = 1200;
 
 int ObjRed, ObjGreen, ObjBlue;
