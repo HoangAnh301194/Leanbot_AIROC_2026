@@ -682,9 +682,9 @@ void loop() {
   followLineUntilNthJunction(2, 1500);
 
   LbGripper.open();
-  forwardMm(65);
+  forwardMm(10);
   LbGripper.close();
-  backwardMm(65);
+  backwardMm(10);
 
   // 5. RETURN TO D AND PLACE BLUE.
   // Ve D: 2 junction moi chang.
@@ -713,18 +713,18 @@ void loop() {
   turnLeft(90);
   followLineUntilNthJunction(4,1500);
   turnRight(45);
-  forwardMm(300);
+  forwardMm(200);
   LbGripper.open(); // through the yellow cube away 
-  backwardMm(300);
+  backwardMm(200);
   
   // take the blue cube 
 
   turnLeft(45);
   followLineUntilNthJunction (2,1500);
   turnRight(45);
-  forwardMm(85);
+  forwardMm(55);
   LbGripper.close();
-  backwardMm(85);
+  backwardMm(55);
 
   turnRight(45);
   followLineUntilNthJunction(2,1500);
@@ -736,9 +736,9 @@ void loop() {
   turnRight(180);
   followLineUntilNthJunction(2,1500);
   turnLeft(45);
-  forwardMm(200);
+  forwardMm(100);
 
   LbMotion.stopAndWait();
-  Leanbot.tone(1500, 200);
+  Leanbot.tone(1500, 1000);
   LbMission.end();
 }
