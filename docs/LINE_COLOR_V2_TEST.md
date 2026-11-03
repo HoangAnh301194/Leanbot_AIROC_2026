@@ -25,3 +25,13 @@ This branch is experimental. **Do not merge or run at full speed before validati
 ## Tunables
 - Line: `LINE_TURN_SMALL`, `LINE_TURN_MEDIUM`, `LINE_TURN_LARGE`, `LINE_LOSS_HOLD_MS`
 - Color: `COLOR_GAIN_R/G/B`, `COLOR_MIN_SIGNAL`, `COLOR_TIMEOUT_MS` and ratios inside `Obj_detectColor()`
+
+## Experimental fixed A/B/D mission (added 2026-11-03)
+- `main.cpp` now contains `abdExecuteMission()` and a replacement `loop()` with fixed colors A2 Yellow, B4 Green, D3 Blue and reserve S1 Green / S3 Blue.
+- **Start assumption is junction `(col=0,row=1)`, heading south — NOT CTRL.** The actual start orientation/location on CTRL remains unconfirmed; remap before competition use.
+- Nominal 4-foot board = 1219.2 mm side; conceptual grid pitch = 406.4 mm. Encoder and junction thresholds, reserve access points, approach distances, and 45-degree motions are estimates that require physical calibration.
+- Route implemented: B4 push -> D3 push -> S3 Blue -> D3 place -> S1 Green -> B4 place -> A2 Yellow -> CTRL place.
+- Digital line-junction navigation checks three consecutive full-black masks and has distance/clock safety limits; it does NOT replace a measured map.
+- Sensor-color classifier is retained, but this mission intentionally uses known colors without calling APDS during execution.
+- The other robot's path is not modeled. Do not run concurrently before collision-clearance testing.
+- Replacing the original hardcoded `loop()` removed references to undefined `di_thang`, `di_lui`, `re_phai`, and `re_trai` helpers. Hardware compile is still unverified.
