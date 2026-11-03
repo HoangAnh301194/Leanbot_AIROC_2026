@@ -3,7 +3,7 @@
 This branch is experimental. **Do not merge or run at full speed before validating with the physical Leanbot.**
 
 ## Scope
-- Line following: 4-bit calibrated `LbIRLine.read()/value()`, no analog. Three steering reductions (20/40/70%), 40 ms straight hold when mask is zero, then recovery in last known direction.
+- Line following: 4-bit calibrated `LbIRLine.read()/value()`, no analog. Three steering reductions (35/65/100%), with edge masks 1000 (8) => runLR(0,2000) and 0001 (1) => runLR(2000,0); 40 ms straight hold when mask is zero, then recovery in last known direction.
 - Junction detection still relies on `line == 15`; the original junction-counting logic was not changed.
 - APDS9960: sequential red/green/blue/off illumination with ambient subtraction, maximum 350 ms sample wait per illumination, classification into Red/Yellow/Green/Blue/Purple/Unknown.
 - Original motion/gripper routes preserved. The color-based mission now dispatches Red and Yellow explicitly; unexpected/failed reads are not silently classified as Red.
