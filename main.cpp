@@ -5,8 +5,8 @@
 #include <Arduino_APDS9960.h>
 // Motor command units: steps/second (LbMotion.runLR).
 // These are initial test values, not RPM conversions.
-const int TURN_STEPS_PER_SEC = 500;
-const int MOVE_STEPS_PER_SEC = 750;
+const int TURN_STEPS_PER_SEC = 1000;
+const int MOVE_STEPS_PER_SEC = 1200;
 
 int ObjRed, ObjGreen, ObjBlue;
 String color;
@@ -606,15 +606,15 @@ void loop() {
 
   // 1. EXIT CTRL.
   // Robot nose points southwest at start.
-  forwardMm(287);
+  forwardMm(260);
 
   // Face west; follow one junction to the left.
   turnRight(45);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(2, 1500);
 
   // Face north; follow one junction toward B/D.
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
 
   // 2. PUSH B4 GREEN INTO B DIAMOND.
   // Approach from the southeast side; 45 deg left from north.
@@ -632,9 +632,9 @@ void loop() {
   // 4. GET BLUE AT S3.
   // From current north-facing junction: east 1, south 1.
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
 
   LbGripper.open();
   forwardMm(65);
@@ -644,9 +644,9 @@ void loop() {
   // 5. RETURN TO D AND PLACE BLUE.
   // Face west -> 1 junction, north -> 1 junction.
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
 
   turnLeft(135);
   forwardMm(125);
@@ -656,9 +656,9 @@ void loop() {
 
   // 6. RETURN TO S1 TO TAKE GREEN.
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
 
   // Provisional S1 offset from the S3 access point.
   turnRight(90);
@@ -676,25 +676,25 @@ void loop() {
 
   // 7. RETURN TO B AND PLACE GREEN.
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
   rotate45LeftThrow();
 
   // 8. TAKE YELLOW AT A2.
   // Continue west one junction, then north one junction.
   turnLeft(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
   rotate45RightTake();
 
   // 9. RETURN WITH YELLOW TO CTRL.
   // East 2 junctions, south 1 junction, then diagonal to CTRL.
   turnRight(90);
-  followLineUntilNthJunction(2, 900);
+  followLineUntilNthJunction(2, 1500);
   turnRight(90);
-  followLineUntilNthJunction(1, 900);
+  followLineUntilNthJunction(1, 1500);
   rotate45RightThrow();
 
   LbMotion.stopAndWait();
