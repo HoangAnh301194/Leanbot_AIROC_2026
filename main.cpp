@@ -554,245 +554,185 @@ void followingLine(int x, int y ){
 }
 // folllowingLine(2000,300);
 // ================================================================
-// EXPERIMENTAL FIXED MISSION: A2=Yellow, B4=Green, D3=Blue
-// Reserves: S1=Green, S3=Blue. Two-robot collision handling is
-// NOT implemented. This is a bench-testing route, not a field-
-// verified course map. Place robot ONLY at the specified start.
-// Start INSIDE CTRL (bottom-right cell), nominally at its center,
-// pointing SOUTHWEST (towards the grid vertex at col=2,row=3).
-// Exit CTRL using a PROVISIONAL open-loop approach to junction (2,3).
-// Physical heading, clearance and offset MUST be checked on the board.
+// SIMPLE A-B-D MISSION (NO POSITION / HEADING ESTIMATION)
+// Fixed-color plan: A2 Yellow, B4 Green, D3 Blue.
+// Reserve blocks: S1 Green, S3 Blue.
+//
+// IMPORTANT - PROVISIONAL ROUTE:
+// Place robot at CTRL facing southwest, toward the bottom road.
+// The junction counts, turn directions, and hard-coded distances
+// must be tested against the ACTUAL course before full execution.
+// Run with only ONE robot during first tests.
 // ================================================================
-const int ABD_NAV_SPEED = 900;              // steps/s
-const int ABD_MOVE_RPM = 25;
-const int ABD_TURN_RPM = 20;
-const int ABD_GRID_PITCH_MM = 406;          // nominal: 1219.2 / 3
-const int ABD_CTRL_EXIT_MM = 287;            // nominal half-cell diagonal; tune
-const int ABD_JUNCTION_MIN_MM = 260;        // initial estimates
-const int ABD_JUNCTION_MAX_MM = 550;
-const unsigned long ABD_NAV_TIMEOUT_MS = 7000;
-const unsigned long ABD_LOST_TIMEOUT_MS = 250;
-const int ABD_APPROACH_A_MM = 145;
-const int ABD_PUSH_B_MM = 145;
-const int ABD_PUSH_D_MM = 145;
-const int ABD_PLACE_B_MM = 125;
-const int ABD_PLACE_D_MM = 125;
-const int ABD_PLACE_CTRL_MM = 175;
-const int ABD_S1_LEFT_OFFSET_MM = 45;
-const int ABD_RESERVE_APPROACH_MM = 65;
-
-int abdCol = 2;
-int abdRow = 3;
-int abdHeading = 5;   // 0=N, 2=E, 4=S, 6=W; odd values = diagonals
-bool abdMissionFinished = false;
-
-void abdFail() {
-  LbMotion.stopAndWait();
-  while (true) {
-    Leanbot.tone(800, 200);
-    LbDelay(800);
-  }
-}
-
-void abdMoveMm(int signedMm) {
-  if (signedMm == 0) return;
-  int rpm = (signedMm > 0) ? ABD_MOVE_RPM : -ABD_MOVE_RPM;
-  LbMotion.runLRrpm(rpm, rpm);
-  LbMotion.waitDistanceMm(abs(signedMm));
-  LbMotion.stopAndWait();
-}
-
-void abdFace(int target) {
-  target = (target + 8) % 8;
-  int diff = (target - abdHeading + 8) % 8;
-  if (diff == 0) return;
-  if (diff <= 4) {
-    LbMotion.runLRrpm(ABD_TURN_RPM, -ABD_TURN_RPM);
-    LbMotion.waitRotationDeg(diff * 45);
-  } else {
-    LbMotion.runLRrpm(-ABD_TURN_RPM, ABD_TURN_RPM);
-    LbMotion.waitRotationDeg((8 - diff) * 45);
-  }
-  LbMotion.stopAndWait();
-  abdHeading = target;
-}
-
-// Detect next full-black junction (1111, three consecutive reads).
-// Bounded by encoder distance and elapsed time to avoid an infinite loop.
-bool abdOneJunction() {
-  unsigned long startMs = millis();
-  unsigned long lostAt = 0;
-  int startDistance = LbMotion.getDistanceMm();
-  int streak = 0;
-  speed = ABD_NAV_SPEED;
-  lineLossStartedAt = 0;
-  lastLineTurn = 0;
-
-  while (true) {
-    LbIRLine.read();
-    line = LbIRLine.value();
-    followLineMotorOnly();
-
-    int travelled = abs(LbMotion.getDistanceMm() - startDistance);
-    if (travelled >= ABD_JUNCTION_MIN_MM && line == 15) {
-      streak++;
-    } else {
-      streak = 0;
-    }
-    if (streak >= 3) {
-      LbMotion.stopAndWait();
-      return true;
-    }
-
-    if (line == 0) {
-      if (lostAt == 0) lostAt = millis();
-      if ((unsigned long)(millis() - lostAt) >= ABD_LOST_TIMEOUT_MS) {
-        LbMotion.stopAndWait();
-        return false;
-      }
-    } else {
-      lostAt = 0;
-    }
-
-    if (travelled >= ABD_JUNCTION_MAX_MM ||
-        (unsigned long)(millis() - startMs) >= ABD_NAV_TIMEOUT_MS) {
-      LbMotion.stopAndWait();
-      return false;
-    }
-  }
-}
-
-void abdGoTo(int col, int row) {
-  if (col < 0 || col > 3 || row < 0 || row > 3) abdFail();
-  while (abdCol != col) {
-    if (abdCol < col) {
-      abdFace(2);                   // east
-      if (!abdOneJunction()) abdFail();
-      abdCol++;
-    } else {
-      abdFace(6);                   // west
-      if (!abdOneJunction()) abdFail();
-      abdCol--;
-    }
-  }
-  while (abdRow != row) {
-    if (abdRow < row) {
-      abdFace(4);                   // south
-      if (!abdOneJunction()) abdFail();
-      abdRow++;
-    } else {
-      abdFace(0);                   // north
-      if (!abdOneJunction()) abdFail();
-      abdRow--;
-    }
-  }
-}
-
-void abdPush(int heading, int mm) {
-  int previous = abdHeading;
-  abdFace(heading);
-  LbGripper.close();
-  abdMoveMm(mm);
-  LbGripper.open();
-  abdMoveMm(-mm);
-  abdFace(previous);
-}
-
-void abdTake(int heading, int mm) {
-  int previous = abdHeading;
-  abdFace(heading);
-  LbGripper.open();
-  abdMoveMm(mm);
-  LbGripper.close();
-  abdMoveMm(-mm);
-  abdFace(previous);
-}
-
-void abdPlace(int heading, int mm) {
-  int previous = abdHeading;
-  abdFace(heading);
-  abdMoveMm(mm);
-  LbGripper.open();
-  abdMoveMm(-mm);
-  abdFace(previous);
-}
-
-// PROVISIONAL: locations S1/S3 are represented relative to (2,3).
-// Actual reserve-side access and clearance must be checked on the board.
-void abdTakeS3() {
-  abdGoTo(2, 3);
-  abdFace(4);
-  LbGripper.open();
-  abdMoveMm(ABD_RESERVE_APPROACH_MM);
-  LbGripper.close();
-  abdMoveMm(-ABD_RESERVE_APPROACH_MM);
-}
-
-void abdTakeS1() {
-  abdGoTo(2, 3);
-  abdFace(6);
-  abdMoveMm(ABD_S1_LEFT_OFFSET_MM);
-  abdFace(4);
-  LbGripper.open();
-  abdMoveMm(ABD_RESERVE_APPROACH_MM);
-  LbGripper.close();
-  abdMoveMm(-ABD_RESERVE_APPROACH_MM);
-  abdFace(2);
-  abdMoveMm(ABD_S1_LEFT_OFFSET_MM);
-  // Pose is back at (2,3) only if this offset was accurately executed.
-}
-
-// Start inside CTRL and drive to the adjacent bottom-left grid vertex.
-// This does not rely on line detection while crossing the CTRL cell.
-// Assumes robot starts at CTRL center facing SOUTHWEST (heading=5).
-void abdExitCtrl() {
-  abdMoveMm(ABD_CTRL_EXIT_MM);
-  abdCol = 2;
-  abdRow = 3;
-  abdHeading = 5;
-  LbMotion.stopAndWait();
-}
-
-void abdExecuteMission() {
-  // B4 Green: push original block into B diamond
-  abdGoTo(1, 2);
-  abdPush(7, ABD_PUSH_B_MM);
-
-  // D3 Blue: push original block into D diamond
-  abdPush(5, ABD_PUSH_D_MM);
-
-  // S3 Blue -> D diamond
-  abdTakeS3();
-  abdGoTo(1, 2);
-  abdPlace(5, ABD_PLACE_D_MM);
-
-  // S1 Green -> B diamond
-  abdTakeS1();
-  abdGoTo(1, 2);
-  abdPlace(7, ABD_PLACE_B_MM);
-
-  // A2 Yellow -> CTRL
-  abdGoTo(0, 1);
-  abdTake(1, ABD_APPROACH_A_MM);
-  abdGoTo(2, 2);
-  abdPlace(3, ABD_PLACE_CTRL_MM);
-  LbMotion.stopAndWait();
-}
 
 void loop() {
-  if (abdMissionFinished) return;
+  static bool finished = false;
+  if (finished) return;
+  finished = true; // Prevent accidentally repeating the mission.
 
   LbMission.begin(TB1A + TB1B);
-  // Place robot inside CTRL at the center, nose pointing southwest.
-  // The 287 mm exit distance is a geometrical estimate, not validated.
-  abdCol = 2;
-  abdRow = 3;
-  abdHeading = 5;
-  abdExitCtrl();
+  LbGripper.open();
 
-  abdExecuteMission();
-  abdMissionFinished = true;
+  // 1. EXIT CTRL.
+  // Robot nose points southwest at start.
+  LbMotion.runLRrpm(25, 25);
+  LbMotion.waitDistanceMm(287); // provisional: CTRL -> bottom road
+  LbMotion.stopAndWait();
+
+  // Face west; follow one junction to the left.
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(45);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+
+  // Face north; follow one junction toward B/D.
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+
+  // 2. PUSH B4 GREEN INTO B DIAMOND.
+  // Approach from the southeast side; 45 deg left from north.
+  rotate45LeftPushCorner();
+
+  // 3. PUSH D3 BLUE INTO D DIAMOND.
+  // From north, turn 135 degrees left toward southwest.
+  LbGripper.close();
+  LbMotion.runLRrpm(-20, 20);
+  LbMotion.waitRotationDeg(135);
+  LbMotion.stopAndWait();
+  LbMotion.runLRrpm(25, 25);
+  LbMotion.waitDistanceMm(120);
+  LbMotion.stopAndWait();
+  LbGripper.open();
+  LbMotion.runLRrpm(-25, -25);
+  LbMotion.waitDistanceMm(120);
+  LbMotion.stopAndWait();
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(135);
+  LbMotion.stopAndWait();
+
+  // 4. GET BLUE AT S3.
+  // From current north-facing junction: east 1, south 1.
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+
+  LbGripper.open();
+  LbMotion.runLRrpm(25, 25);
+  LbMotion.waitDistanceMm(65);
+  LbMotion.stopAndWait();
+  LbGripper.close();
+  LbMotion.runLRrpm(-25, -25);
+  LbMotion.waitDistanceMm(65);
+  LbMotion.stopAndWait();
+
+  // 5. RETURN TO D AND PLACE BLUE.
+  // Face west -> 1 junction, north -> 1 junction.
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+
+  LbMotion.runLRrpm(-20, 20);
+  LbMotion.waitRotationDeg(135);
+  LbMotion.stopAndWait();
+  LbMotion.runLRrpm(25, 25);
+  LbMotion.waitDistanceMm(125);
+  LbMotion.stopAndWait();
+  LbGripper.open();
+  LbMotion.runLRrpm(-25, -25);
+  LbMotion.waitDistanceMm(125);
+  LbMotion.stopAndWait();
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(135);
+  LbMotion.stopAndWait();
+
+  // 6. RETURN TO S1 TO TAKE GREEN.
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+
+  // Provisional S1 offset from the S3 access point.
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  LbMotion.runLRrpm(25, 25);
+  LbMotion.waitDistanceMm(45);
+  LbMotion.stopAndWait();
+  LbMotion.runLRrpm(-20, 20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+
+  LbGripper.open();
+  LbMotion.runLRrpm(25, 25);
+  LbMotion.waitDistanceMm(65);
+  LbMotion.stopAndWait();
+  LbGripper.close();
+  LbMotion.runLRrpm(-25, -25);
+  LbMotion.waitDistanceMm(65);
+  LbMotion.stopAndWait();
+
+  LbMotion.runLRrpm(-20, 20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  LbMotion.runLRrpm(25, 25);
+  LbMotion.waitDistanceMm(45);
+  LbMotion.stopAndWait();
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+
+  // 7. RETURN TO B AND PLACE GREEN.
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+  rotate45LeftThrow();
+
+  // 8. TAKE YELLOW AT A2.
+  // Continue west one junction, then north one junction.
+  LbMotion.runLRrpm(-20, 20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+  rotate45RightTake();
+
+  // 9. RETURN WITH YELLOW TO CTRL.
+  // East 2 junctions, south 1 junction, then diagonal to CTRL.
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(2, 900);
+  LbMotion.runLRrpm(20, -20);
+  LbMotion.waitRotationDeg(90);
+  LbMotion.stopAndWait();
+  followLineUntilNthJunction(1, 900);
+  rotate45RightThrow();
+
+  LbMotion.stopAndWait();
   Leanbot.tone(1500, 200);
   LbMission.end();
 }
-
