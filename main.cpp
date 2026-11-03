@@ -142,8 +142,8 @@ bool returnFromActionPoint(const ActionPoint &p);
 void turnTowardBlock(const ActionPoint &p);
 void turnBackFromBlock(const ActionPoint &p);
 uint8_t scanAtCurrentPoint(const ActionPoint &p);
-void manipulateAtCurrentPoint(const ActionPoint &p, uint8_t action,
-                              bool storageBlock = false);
+void manipulateAtCurrentPoint(uint8_t pointType, uint8_t heading,
+                              int8_t side, uint8_t action, bool storageBlock);
 
 struct PollutionItem {
   uint8_t location;   // zone*4 + (slot-1), 0..31
@@ -938,7 +938,9 @@ uint8_t scanAtCurrentPoint(const ActionPoint &p) {
 
 // Reproduces the existing helper motions: +/-45 deg, 80mm node TAKE,
 // 100mm marker TAKE/THROW, 120mm PUSH, then reverse and restore yaw.
-void manipulateAtCurrentPoint(const ActionPoint &p,uint8_t action,bool storageBlock) {
+void manipulateAtCurrentPoint(uint8_t pointType, uint8_t heading,
+                              int8_t side, uint8_t action, bool storageBlock) {
+  ActionPoint p = {pointType, 0, 255, heading, side};
   LbMotion.stopAndWait();
   if(action==MANIP_TAKE || action==MANIP_PUSH) LbGripper.open();
   turnTowardBlock(p);
@@ -1050,7 +1052,7 @@ bool processPollution(uint8_t index) {
     return returnFromActionPoint(p);
   }
   if(c==COL_RED || c==COL_YELLOW) {
-    manipulateAtCurrentPoint(p,MANIP_TAKE);
+    manipulateAtCurrentPoint(p.type,p.heading,p.side,MANIP_TAKE,false);
     if(!returnFromActionPoint(p))return false;
     item.status=POL_RETURNED; // assumed after CRL delivery
     bool resume=enoughTime();
@@ -1059,7 +1061,7 @@ bool processPollution(uint8_t index) {
     return true;
   }
   // Green, Blue and Purple: first push into quarantine diamond.
-  manipulateAtCurrentPoint(p,MANIP_PUSH);
+  manipulateAtCurrentPoint(p.type,p.heading,p.side,MANIP_PUSH,false);
   if(!returnFromActionPoint(p))return false;
   item.status=POL_CONTAINED;
   uint8_t required=storageCodeForColor(c);
@@ -1075,12 +1077,12 @@ bool processPollution(uint8_t index) {
   ActionPoint sp=storagePoint((uint8_t)reserve);
   Serial.print(F("PICK_STORAGE S"));Serial.println(reserve+1);
   if(!goToActionPoint(sp))return false;
-  manipulateAtCurrentPoint(sp,MANIP_TAKE,true);
+  manipulateAtCurrentPoint(sp.type,sp.heading,sp.side,MANIP_TAKE,true);
   if(!returnFromActionPoint(sp))return false;
   markStorageUsed((uint8_t)reserve);
   // Carry matching neutralizer to same contamination position.
   if(!goToActionPoint(p))return false;
-  manipulateAtCurrentPoint(p,MANIP_THROW);
+  manipulateAtCurrentPoint(p.type,p.heading,p.side,MANIP_THROW,false);
   if(!returnFromActionPoint(p))return false;
   item.status=POL_NEUTRALIZED;
   Serial.print(F("NEUTRALIZATION_DONE "));Serial.print(zone);Serial.println(slot);
