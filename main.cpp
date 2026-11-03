@@ -11,7 +11,7 @@ const int MOVE_STEPS_PER_SEC = 1200;
 // MAP SURVEY / KHAO SAT TOAN BO 24 CANH CUA LUOI 4x4
 // Survey only. Single main.cpp.
 // ================================================================
-const int SURVEY_SPEED_STEPS = 850;       // steps/second
+const int SURVEY_SPEED_STEPS = 1200;       // steps/second
 const int SURVEY_MAX_EDGE_MM = 650;      // safety limit; calibrate on mat that
 const int SURVEY_MAX_CURVE_MM = 1300;    // two segments over rounded corner
 const unsigned long SURVEY_EDGE_TIMEOUT_MS = 15000UL;
