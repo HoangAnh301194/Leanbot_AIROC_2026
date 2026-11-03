@@ -2,6 +2,7 @@
 //    by Leanbot Blockly Editor 2026-02-14
 
 #include <Leanbot.h>
+#include <Arduino_APDS9960.h>
 #include <string.h>
 // Motor command units: steps/second (LbMotion.runLR).
 // These are initial test values, not RPM conversions.
@@ -265,12 +266,109 @@ float lineTurnCorrection(int state) {
   }
 }
 
+
+// ================================================================
+// APDS9960: 5 colors with Leanbot RGB illumination (no String).
+// Sensor must see the object's surface at scan distance.
+// UNKNOWN/MYSTERY cannot be reliably distinguished by this classifier.
+// ================================================================
+bool apdsReady=false;
+const float COLOR_GAIN_R=1.0f,COLOR_GAIN_G=1.0f,COLOR_GAIN_B=1.0f;
+const float COLOR_MIN_SIGNAL=10.0f;
+const unsigned long COLOR_TIMEOUT_MS=350UL;
+int16_t colorR=0,colorG=0,colorB=0;
+
+bool readIlluminated(int &r,int &g,int &b,CRGB led) {
+  LbRGB.fillColor(led);LbRGB.show();LbDelay(20);
+  if(APDS.colorAvailable()) {
+    int orr,ogg,obb;APDS.readColor(orr,ogg,obb);
+  }
+  unsigned long started=millis();
+  while(!APDS.colorAvailable()) {
+    if((unsigned long)(millis()-started)>COLOR_TIMEOUT_MS) return false;
+  }
+  APDS.readColor(r,g,b);
+  return true;
+}
+uint8_t detectColorOnce() {
+  if(!apdsReady) return COL_UNKNOWN;
+  int rr=0,gg=0,bb=0,tmpR=0,tmpG=0,tmpB=0;
+  int darkR=0,darkG=0,darkB=0;
+  int oldBrightness=LbRGB.getBrightness();
+  LbRGB.setBrightness(255);
+  bool ok=readIlluminated(rr,tmpG,tmpB,CRGB::Red);
+  if(ok) ok=readIlluminated(tmpR,gg,tmpB,CRGB::Lime);
+  if(ok) ok=readIlluminated(tmpR,tmpG,bb,CRGB::Blue);
+  if(ok) ok=readIlluminated(darkR,darkG,darkB,CRGB::Black);
+  LbRGB.setBrightness(oldBrightness);
+  LbRGB.clear();LbRGB.show();
+  if(!ok) return COL_UNKNOWN;
+  float red=(rr>darkR ? rr-darkR : 0)*COLOR_GAIN_R;
+  float green=(gg>darkG ? gg-darkG : 0)*COLOR_GAIN_G;
+  float blue=(bb>darkB ? bb-darkB : 0)*COLOR_GAIN_B;
+  colorR=(int16_t)red;colorG=(int16_t)green;colorB=(int16_t)blue;
+  if(red<COLOR_MIN_SIGNAL && green<COLOR_MIN_SIGNAL &&
+     blue<COLOR_MIN_SIGNAL) return COL_UNKNOWN;
+  if(red>=COLOR_MIN_SIGNAL && green>=COLOR_MIN_SIGNAL &&
+     red>1.45f*blue && green>1.45f*blue &&
+     red<2.0f*green && green<2.0f*red) return COL_YELLOW;
+  if(red>=COLOR_MIN_SIGNAL && blue>=COLOR_MIN_SIGNAL &&
+     red>1.45f*green && blue>1.45f*green &&
+     red<2.2f*blue && blue<2.2f*red) return COL_PURPLE;
+  if(green>=COLOR_MIN_SIGNAL && green>1.30f*red &&
+     green>1.30f*blue) return COL_GREEN;
+  if(blue>=COLOR_MIN_SIGNAL && blue>1.30f*red &&
+     blue>1.30f*green) return COL_BLUE;
+  if(red>=COLOR_MIN_SIGNAL && red>1.30f*green &&
+     red>1.30f*blue) return COL_RED;
+  return COL_UNKNOWN;
+}
+
+const __FlashStringHelper* colorName(uint8_t c) {
+  switch(c) {
+    case COL_RED:return F("RED");
+    case COL_YELLOW:return F("YELLOW");
+    case COL_GREEN:return F("GREEN");
+    case COL_BLUE:return F("BLUE");
+    case COL_PURPLE:return F("PURPLE");
+    default:return F("UNKNOWN_OR_MYSTERY");
+  }
+}
+
+uint8_t detectColorStable() {
+  uint8_t a=detectColorOnce();LbDelay(40);
+  uint8_t b=detectColorOnce();
+  if(a!=COL_UNKNOWN && a==b) return a;
+  LbDelay(40);
+  uint8_t c=detectColorOnce();
+  if(a!=COL_UNKNOWN && a==c) return a;
+  if(b!=COL_UNKNOWN && b==c) return b;
+  return COL_UNKNOWN;
+}
+
+bool validateStorageConfiguration() {
+  uint8_t green=0,blue=0,purple=0;
+  bool valid=true;
+  for(uint8_t i=0;i<6;i++) {
+    if(storage[i].color==STORAGE_GREEN) ++green;
+    else if(storage[i].color==STORAGE_BLUE) ++blue;
+    else if(storage[i].color==STORAGE_PURPLE) ++purple;
+    else if(storage[i].color!=STORAGE_EMPTY) valid=false;
+  }
+  if(green!=1 || blue!=1 || purple!=1) valid=false;
+  if(!valid) Serial.println(F("ERROR STORAGE_MUST_CONTAIN_ONE_G_ONE_B_ONE_P"));
+  return valid;
+}
+
 void setup() {
   Serial.begin(115200);
   Leanbot.begin();
+  apdsReady=APDS.begin();
+  if(!apdsReady) Serial.println(F("ERROR APDS9960_INIT_FAILED"));
   LbIRLine.doManualCalibration(TB1A);
   initializeStorage();
-  missionConfigValid = initializePollution();
+  missionConfigValid = initializePollution() && validateStorageConfiguration();
+  if(!apdsReady) missionConfigValid=false;
 }
 
 
