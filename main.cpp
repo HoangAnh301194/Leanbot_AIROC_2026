@@ -156,9 +156,9 @@ int line;
 int speed;
 // Digital 4-sensor line tracking: uses calibrated black/white bitmask only.
 // Corrections are initial tuning values; validate sensor orientation on hardware.
-const float LINE_TURN_SMALL = 0.20f;
-const float LINE_TURN_MEDIUM = 0.40f;
-const float LINE_TURN_LARGE = 0.70f;
+const float LINE_TURN_SMALL = 0.35f;
+const float LINE_TURN_MEDIUM = 0.65f;
+const float LINE_TURN_LARGE = 1.00f;
 const unsigned long LINE_LOSS_HOLD_MS = 40;
 int lastLineTurn = 0; // -1: slow left wheel; +1: slow right wheel
 unsigned long lineLossStartedAt = 0;
@@ -292,6 +292,17 @@ void followLineMotorOnly() {
     if (correction < 0) lastLineTurn = -1;
     else if (correction > 0) lastLineTurn = 1;
   }
+  // Extreme states 1000 and 0001: outside wheel at max 2000 steps/s,
+  // inside wheel stopped. Keep the original steering direction.
+  if (line == 8) {
+    LbMotion.runLR(0, 2000);
+    return;
+  }
+  if (line == 1) {
+    LbMotion.runLR(2000, 0);
+    return;
+  }
+
   int left = speed;
   int right = speed;
   if (correction < 0) left = (int)(speed * (1.0f + correction));
