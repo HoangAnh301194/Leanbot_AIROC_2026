@@ -463,6 +463,18 @@ int8_t gridNeighbor(uint8_t n, uint8_t dir) {
   return -1;
 }
 
+// Protect storage-adjacent BOUNDARY lines in both directions.
+// Bottom: J31-J32 beside S1, J32-J33 beside S5.
+// Right : J13-J23 beside S2, J23-J33 beside S6.
+// Storage nodes remain accessible from INSIDE: J22-J32, J22-J23.
+// The other boundary edges near D/F are retained for pollution access.
+bool isStoragePerimeterEdge(uint8_t a, uint8_t b) {
+  return ((a==13 && b==14) || (a==14 && b==13) ||
+          (a==14 && b==15) || (a==15 && b==14) ||
+          (a==7  && b==11) || (a==11 && b==7)  ||
+          (a==11 && b==15) || (a==15 && b==11));
+}
+
 // Return a traversable route segment: one straight edge, or a
 // two-edge continuous curve. Curves cannot be endpoints or spin points.
 bool planHop(uint8_t from, uint8_t dir,
@@ -470,6 +482,7 @@ bool planHop(uint8_t from, uint8_t dir,
   if (from==15 && dir!=3) return false; // initial J33 exit WEST only
   int8_t adjacent=gridNeighbor(from,dir);
   if (adjacent<0 || adjacent==15) return false;
+  if (isStoragePerimeterEdge(from,(uint8_t)adjacent)) return false;
   via=INVALID_STATE;
   dest=(uint8_t)adjacent;
   endHeading=dir;
@@ -485,6 +498,7 @@ bool planHop(uint8_t from, uint8_t dir,
       }
     }
     if (exitNode<0 || exitNode==15) return false;
+    if (isStoragePerimeterEdge(via,(uint8_t)exitNode)) return false;
     dest=(uint8_t)exitNode;
   }
   return isGoalNode(dest);
@@ -651,6 +665,12 @@ bool traverseHop(uint8_t dest,uint8_t via) {
   int8_t finalDir=curved?gridDirection(via,dest):firstDir;
   if(firstDir<0 || finalDir<0) {
     Serial.println(F("ERROR INVALID_HOP"));
+    return false;
+  }
+  if(isStoragePerimeterEdge(from,curved?via:dest) ||
+     (curved && isStoragePerimeterEdge(via,dest))) {
+    LbMotion.stopAndWait();
+    Serial.println(F("ERROR BLOCKED_STORAGE_PERIMETER_HOP"));
     return false;
   }
   if(from==15) {
@@ -890,6 +910,9 @@ bool goToActionPoint(const ActionPoint &p) {
   if(p.type==ANCHOR_MARKER) {
     if(gridNeighbor(p.node,p.heading)!=p.next) {
       Serial.println(F("ERROR BAD_MARKER_DIRECTION"));return false;
+    }
+    if(isStoragePerimeterEdge(p.node,p.next)) {
+      Serial.println(F("ERROR BLOCKED_STORAGE_MARKER_APPROACH"));return false;
     }
     Serial.print(F("APPROACH_MARKER from="));printNode(p.node);
     Serial.print(F(" toward="));printNode(p.next);Serial.println();
