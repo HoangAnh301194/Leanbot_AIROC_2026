@@ -9,10 +9,8 @@ const int MOVE_STEPS_PER_SEC = 1200;
 
 // ================================================================
 // MAP SURVEY / KHAO SAT TOAN BO 24 CANH CUA LUOI 4x4
-// 1 = diagnostic mode; 0 = original competition mission.
-// CHI mot file main.cpp. No *.h / *.cpp.
+// Survey only. Single main.cpp.
 // ================================================================
-#define MAP_SURVEY_MODE 1
 const int SURVEY_SPEED_STEPS = 850;       // steps/second
 const int SURVEY_MAX_EDGE_MM = 650;      // safety limit; calibrate on mat that
 const int SURVEY_MAX_CURVE_MM = 1300;    // two segments over rounded corner
