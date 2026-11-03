@@ -35,3 +35,9 @@ This branch is experimental. **Do not merge or run at full speed before validati
 - Sensor-color classifier is retained, but this mission intentionally uses known colors without calling APDS during execution.
 - The other robot's path is not modeled. Do not run concurrently before collision-clearance testing.
 - Replacing the original hardcoded `loop()` removed references to undefined `di_thang`, `di_lui`, `re_phai`, and `re_trai` helpers. Hardware compile is still unverified.
+
+## Simplified direct-loop mission (2026-11-03)
+- The previous `abd*` coordinate/heading navigation model was **removed**. `loop()` now directly sequences existing Leanbot APIs: `LbMotion.runLRrpm`, `LbMotion.waitDistanceMm`, `LbMotion.waitRotationDeg`, `followLineUntilNthJunction`, and gripper helpers.
+- Start: CTRL, facing southwest. First command drives straight 287 mm (estimated) before a 45-degree right turn to the bottom line.
+- Task sequence is B Green push, D Blue push, S3 Blue pickup/delivery, S1 Green pickup/delivery, A Yellow pickup/CTRL delivery.
+- **No successful compilation or physical navigation has been verified**. Junction counts, turning geometry, reserve approach, and hard-coded distances are PROVISIONAL; original `followLineUntilNthJunction` may block indefinitely when a junction is missed. Test one leg at a time with clear space and low motor speed; do not run the second robot simultaneously yet.
