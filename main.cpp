@@ -600,9 +600,12 @@ void backwardMm(int distanceMm, int stepsPerSec = MOVE_STEPS_PER_SEC) {
 // Reserve blocks: S1 Green, S3 Blue.
 //
 // IMPORTANT - PROVISIONAL ROUTE:
-// Place robot at CTRL facing southwest, toward the bottom road.
-// The junction counts, turn directions, and hard-coded distances
-// must be tested against the ACTUAL course before full execution.
+// START at CTRL with the robot ALREADY FACING NORTHWEST.
+// Drive forward, turn LEFT 45 deg to face WEST, then follow the
+// UPPER approach line toward the A/B/D side of the course.
+// Do NOT use the lower reserve-block road as the exit from CTRL.
+// Subsequent junction counts and B/D handling remain test assumptions;
+// the S1/S3 branch is visited only during reserve pickup missions.
 // Run with only ONE robot during first tests.
 // ================================================================
 
@@ -614,15 +617,15 @@ void loop() {
   LbMission.begin(TB1A + TB1B);
   LbGripper.open();
 
-  // 1. EXIT CTRL.
-  // Robot nose points southwest at start.
-  forwardMm(50);
-
-  // Face west; follow one junction to the left.
-  turnRight(45);
+  // 1. EXIT CTRL VIA THE UPPER LINE (NOT THE LOWER S1/S3/S5 ROAD).
+  // Dat Leanbot o CTRL, DA HUONG TAY BAC ngay tu dau.
+  forwardMm(50);       // Tien thang ve phia Tay Bac.
+  turnLeft(45);        // Tay Bac -> Tay, vao nhanh line phia tren.
   followLineUntilNthJunction(2, 1500);
-  // Face north; follow one junction toward B/D.
-  turnRight(90);
+
+  // Tai junction theo tuyen tren: re vao nhanh phuc vu A/B/D.
+  // Kiem tra tren sa ban vi so junction va huong re chua xac nhan.
+  turnRight(90);       // Tay -> Bac.
   followLineUntilNthJunction(2, 1500);
 
   // 2. PUSH B4 GREEN INTO B DIAMOND.
