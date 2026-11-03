@@ -511,7 +511,7 @@ uint16_t turnPenalty(uint8_t from,uint8_t to) {
   return TURN_90_COST;
 }
 
-bool findPath(uint8_t start, uint8_t heading, uint8_t goal) {
+bool findPath(uint8_t start, uint8_t heading, uint8_t goal, bool verbose=true) {
   routeLength=0;
   if(start>=16 || heading>=4 || !isGoalNode(goal)) return false;
   for(uint8_t i=0;i<STATE_COUNT;i++) {
@@ -577,6 +577,7 @@ bool findPath(uint8_t start, uint8_t heading, uint8_t goal) {
     uint8_t tmp=routeStates[i];routeStates[i]=routeStates[j];routeStates[j]=tmp;
     tmp=routeVias[i];routeVias[i]=routeVias[j];routeVias[j]=tmp;
   }
+  if(verbose) {
   Serial.print(F("PLAN start="));printNode(start);
   Serial.print(F(" heading="));Serial.print(heading);
   Serial.print(F(" goal="));printNode(goal);
@@ -588,6 +589,7 @@ bool findPath(uint8_t start, uint8_t heading, uint8_t goal) {
       Serial.print(F(" via_curve="));printNode(routeVias[i]);
     }
     Serial.println();
+  }
   }
   return true;
 }
@@ -772,36 +774,332 @@ bool navigateTo(uint8_t goal) {
   return true;
 }
 
-void runNavigationTest() {
-  LbMotion.stopAndWait();
-  Serial.println(F("DIJKSTRA_TEST_START from J33 facing WEST"));
-  Serial.println(F("FIRST_GOAL=J10 (row 1, col 0); then 5 random junctions"));
-  Serial.println(F("REMOVE ALL BLOCKS. No gripper operations."));
-  LbMission.begin(TB1A + TB1B);
 
-  bool ok=navigateTo(FIRST_GOAL);
-  if(ok) {
-    // Random among navigable junctions only; no curve or J33 target.
-    randomSeed(micros());
-    for(uint8_t test=0;test<RANDOM_TEST_COUNT;test++) {
-      uint8_t goal;
-      do {
-        goal=(uint8_t)random(0,16);
-      } while(!isGoalNode(goal) || goal==currentNode);
-      Serial.print(F("RANDOM_TEST #"));Serial.print(test+1);
-      Serial.print(F(" TARGET="));printNode(goal);Serial.println();
-      if(!navigateTo(goal)){ok=false;break;}
+// ================================================================
+// AUTONOMOUS MISSION: CRL -> line -> detect -> act -> replan.
+// J22 is the north-west corner of CRL. The 130mm diagonal is an
+// EMPIRICAL setup assumption from the older successful CRL exit.
+// All movement remains blocking; no scheduler/heap needed.
+// ================================================================
+#define MISSION_TIME_LIMIT_MS 180000UL    // National round; set 120000UL for Intl.
+#define RETURN_RESERVE_MS 28000UL
+#define CRL_DIAGONAL_MM 130
+#define SCAN_NODE_MM 55
+#define SCAN_MARKER_MM 65
+#define TAKE_NODE_MM 80
+#define TAKE_MARKER_MM 100
+#define STORAGE_NODE_MM 75
+#define PUSH_MM 120
+#define MAX_SINGLE_EDGE_MM 650
+#define MIN_SINGLE_MARKER_MM 65
+
+enum ManipAction : uint8_t { MANIP_TAKE=1,MANIP_PUSH=2,MANIP_THROW=3 };
+bool atMarker=false;
+unsigned long missionStartedAt=0;
+
+void failStop(const __FlashStringHelper* why) {
+  LbMotion.stopAndWait();
+  LbRGB.fillColor(CRGB::Red);
+  LbRGB.show();
+  Serial.print(F("MISSION_ABORT "));Serial.println(why);
+  Leanbot.tone(500,300);
+}
+
+bool enoughTime() {
+  return (unsigned long)(millis()-missionStartedAt)
+         < (unsigned long)(MISSION_TIME_LIMIT_MS-RETURN_RESERVE_MS);
+}
+
+// Follow exactly ONE new full-black event: node->marker OR marker->node.
+// The start event is locked until 60ms of non-1111 has been observed.
+bool followOneEvent(bool expectedMarker) {
+  unsigned long started=millis(),lastSeen=started,whiteAt=0,lastRgb=0;
+  long odomStart=LbMotion.getDistanceMm();
+  uint8_t blackStreak=0;
+  bool locked=true;
+  surveyLostAt=0;surveyLastTurn=0;
+  while(true) {
+    LbIRLine.read();line=LbIRLine.value();
+    unsigned long now=millis();
+    long d=LbMotion.getDistanceMm()-odomStart;
+    if(d<0)d=-d;
+    if(line!=0)lastSeen=now;
+    if((unsigned long)(now-lastSeen)>SURVEY_LINE_LOST_MS ||
+       (unsigned long)(now-started)>SURVEY_EDGE_TIMEOUT_MS ||
+       d>MAX_SINGLE_EDGE_MM) {
+      LbMotion.stopAndWait();
+      Serial.print(F("ERROR HALF_EDGE_TIMEOUT odom_mm="));Serial.println(d);
+      return false;
+    }
+    surveyFollowMotor();
+    if((unsigned long)(now-lastRgb)>=RGB_REFRESH_MS) {
+      lastRgb=now;LbRGB.clear();
+      LbIRLine.displayOnRGB(0x00ff00);LbRGB.show();
+    }
+    if(line==15) {
+      whiteAt=0;
+      if(blackStreak<SURVEY_BLACK_SAMPLES)blackStreak++;
+      if(!locked && blackStreak>=SURVEY_BLACK_SAMPLES) {
+        LbMotion.stopAndWait();
+        if(d<MIN_SINGLE_MARKER_MM) {
+          Serial.print(F("ERROR FALSE_MARKER odom_mm="));Serial.println(d);
+          return false;
+        }
+        Serial.print(expectedMarker ? F("MARKER_ARRIVED mm=") :
+                                      F("NODE_REACQUIRED mm="));
+        Serial.println(d);
+        Leanbot.tone(expectedMarker ? MARKER_BEEP_HZ : NODE_BEEP_HZ,
+                     expectedMarker ? MARKER_BEEP_MS : NODE_BEEP_MS);
+        forwardMm(10,SURVEY_SPEED_STEPS);
+        return true;
+      }
+    } else {
+      blackStreak=0;
+      if(locked) {
+        if(!whiteAt)whiteAt=now;
+        if((unsigned long)(now-whiteAt)>=SURVEY_EXIT_BLACK_MS)locked=false;
+      }
     }
   }
+}
+
+// One mission action always begins at a real anchor (node/marker).
+// Marker actions return to the SAME entry junction afterwards.
+bool goToActionPoint(const ActionPoint &p) {
+  if(atMarker) {Serial.println(F("ERROR ALREADY_AT_MARKER"));return false;}
+  if(!navigateTo(p.node)) return false;
+  if(p.heading>=4) return false;
+  turnToward(p.heading);
+  if(p.type==ANCHOR_MARKER) {
+    if(gridNeighbor(p.node,p.heading)!=p.next) {
+      Serial.println(F("ERROR BAD_MARKER_DIRECTION"));return false;
+    }
+    Serial.print(F("APPROACH_MARKER from="));printNode(p.node);
+    Serial.print(F(" toward="));printNode(p.next);Serial.println();
+    if(!followOneEvent(true))return false;
+    atMarker=true;
+  }
+  return true;
+}
+
+bool returnFromActionPoint(const ActionPoint &p) {
+  if(p.type==ANCHOR_NODE) return !atMarker;
+  if(!atMarker) return false;
+  // Marker is off-graph. Return along the just-traversed half edge.
+  turnRight(180);
+  currentHeading=(uint8_t)((p.heading+2)%4);
+  Serial.print(F("RETURN_FROM_MARKER to="));printNode(p.node);Serial.println();
+  if(!followOneEvent(false))return false;
+  currentNode=p.node;
+  atMarker=false;
+  Serial.print(F("NODE_RESTORED "));printNode(currentNode);
+  Serial.print(F(" heading="));Serial.println(currentHeading);
+  return true;
+}
+
+void turnTowardBlock(const ActionPoint &p) {
+  if(p.side==RIGHT_45) turnRight(45);
+  else if(p.side==LEFT_45) turnLeft(45);
+}
+void turnBackFromBlock(const ActionPoint &p) {
+  if(p.side==RIGHT_45) turnLeft(45);
+  else if(p.side==LEFT_45) turnRight(45);
+}
+
+// Temporarily approach the object without touching it, read RGB,
+// then restore the line-relative reference pose before acting.
+uint8_t scanAtCurrentPoint(const ActionPoint &p) {
+  turnTowardBlock(p);
+  uint8_t mm=p.type==ANCHOR_NODE ? SCAN_NODE_MM : SCAN_MARKER_MM;
+  forwardMm(mm);
+  uint8_t c=detectColorStable();
+  backwardMm(mm);
+  turnBackFromBlock(p);
+  Serial.print(F("COLOR_DECISION "));Serial.println(colorName(c));
+  return c;
+}
+
+// Reproduces the existing helper motions: +/-45 deg, 80mm node TAKE,
+// 100mm marker TAKE/THROW, 120mm PUSH, then reverse and restore yaw.
+void manipulateAtCurrentPoint(const ActionPoint &p,uint8_t action,bool storageBlock=false) {
   LbMotion.stopAndWait();
-  Serial.println(ok?F("NAV_TEST_DONE"):F("NAV_TEST_ABORTED"));
+  if(action==MANIP_TAKE || action==MANIP_PUSH) LbGripper.open();
+  turnTowardBlock(p);
+  uint16_t mm=p.type==ANCHOR_NODE ? TAKE_NODE_MM : TAKE_MARKER_MM;
+  if(storageBlock && p.side==STRAIGHT)mm=STORAGE_NODE_MM;
+  if(action==MANIP_PUSH) {
+    mm=PUSH_MM;
+    LbGripper.close(); // closed fingers for the first part of the push
+  }
+  forwardMm(mm);
+  if(action==MANIP_TAKE) LbGripper.close();
+  else LbGripper.open();
+  backwardMm(mm);
+  turnBackFromBlock(p);
+  LbMotion.stopAndWait();
+}
+
+// The starting pose is INSIDE CRL facing NW (315 deg).
+// The older mission used: forward 130mm, LEFT 45deg, then two 1111s
+// to reach J21. Here we infer J22, heading WEST after the left turn,
+// then verify J21 via the same two full-black events.
+bool exitCRLAndLocalize() {
+  Serial.println(F("CRL_EXIT_EXPECT NW -> forward130 -> left45 -> J22->J21"));
+  LbGripper.open();
+  forwardMm(CRL_DIAGONAL_MM);
+  turnLeft(45);
+  currentNode=10;currentHeading=3;atMarker=false; // J22, WEST inferred
+  if(!traverseHop(9,INVALID_STATE)) return false; // J21 confirmed by 1111 count
+  Serial.println(F("CRL_EXIT_LOCALIZED_AT_J21"));
+  return true;
+}
+
+void turnCardinalToSoutheast() {
+  // Southeast is 135 deg clockwise from North.
+  int delta=(135-(int)currentHeading*90+360)%360;
+  if(delta<=180) {
+    if(delta)turnRight(delta);
+  } else turnLeft(360-delta);
+}
+
+// Return via J22 on the same NW<->SE diagonal as initial CRL exit.
+// If resume=true, retreat out of CRL to J22, restore facing WEST.
+bool enterCRL(bool resume) {
+  if(atMarker) {Serial.println(F("ERROR RETURN_FROM_MARKER_FIRST"));return false;}
+  if(!navigateTo(10))return false;  // J22
+  turnCardinalToSoutheast();
+  forwardMm(CRL_DIAGONAL_MM);
+  LbGripper.open();
+  Serial.println(F("CRL_REACHED_BLOCK_RELEASED_IF_CARRIED"));
+  if(resume) {
+    backwardMm(CRL_DIAGONAL_MM);
+    turnRight(135); // from SE to WEST
+    currentNode=10;currentHeading=3;
+    Serial.println(F("CRL_EXIT_READY J22 heading=WEST"));
+  }
+  return true;
+}
+
+uint8_t storageCodeForColor(uint8_t color) {
+  if(color==COL_GREEN)return STORAGE_GREEN;
+  if(color==COL_BLUE)return STORAGE_BLUE;
+  if(color==COL_PURPLE)return STORAGE_PURPLE;
+  return STORAGE_EMPTY;
+}
+
+// Dijkstra computes route cost to the junction anchor. If marker
+// approach is necessary add an estimated half-edge + approach-turn.
+int8_t chooseNextUnknown() {
+  int8_t choice=-1;
+  uint16_t best=65535U;
+  for(uint8_t i=0;i<7;i++) {
+    if(pollution[i].status!=POL_PENDING)continue;
+    ActionPoint p=pollutionPoint(pollution[i].location);
+    if(!findPath(currentNode,currentHeading,p.node,false))continue;
+    uint16_t c=65535U;
+    for(uint8_t h=0;h<4;h++) {
+      uint16_t x=pathCost[p.node*4+h];
+      if(x<c)c=x;
+    }
+    if(c==65535U)continue;
+    c=(uint16_t)(c+turnPenalty(currentHeading,p.heading));
+    if(p.type==ANCHOR_MARKER)c=(uint16_t)(c+EDGE_COST/2);
+    if(c<best){best=c;choice=(int8_t)i;}
+  }
+  return choice;
+}
+
+bool processPollution(uint8_t index) {
+  PollutionItem &item=pollution[index];
+  ActionPoint p=pollutionPoint(item.location);
+  char zone=(char)('A'+item.location/4);
+  uint8_t slot=(uint8_t)(item.location%4+1);
+  Serial.print(F("TASK_POSITION "));Serial.print(zone);Serial.println(slot);
+  if(!goToActionPoint(p))return false;
+  uint8_t c=scanAtCurrentPoint(p);
+  item.color=c;
+  if(c==COL_UNKNOWN) {
+    item.status=POL_UNCERTAIN; // Mystery is NOT automatically inferred
+    Serial.println(F("SKIP UNKNOWN/MYSTERY: no verified classifier"));
+    return returnFromActionPoint(p);
+  }
+  if(c==COL_RED || c==COL_YELLOW) {
+    manipulateAtCurrentPoint(p,MANIP_TAKE);
+    if(!returnFromActionPoint(p))return false;
+    item.status=POL_RETURNED; // assumed after CRL delivery
+    bool resume=enoughTime();
+    if(!enterCRL(resume))return false;
+    if(!resume)Serial.println(F("TIME_LIMIT: finished after CRL delivery"));
+    return true;
+  }
+  // Green, Blue and Purple: first push into quarantine diamond.
+  manipulateAtCurrentPoint(p,MANIP_PUSH);
+  if(!returnFromActionPoint(p))return false;
+  item.status=POL_CONTAINED;
+  uint8_t required=storageCodeForColor(c);
+  int8_t reserve=findAvailableStorage(required);
+  if(reserve<0) {
+    Serial.println(F("NO_MATCHING_STORAGE: containment only"));
+    return true;
+  }
+  if(!enoughTime()) {
+    Serial.println(F("TIME_LOW: skip neutralization"));
+    return true;
+  }
+  ActionPoint sp=storagePoint((uint8_t)reserve);
+  Serial.print(F("PICK_STORAGE S"));Serial.println(reserve+1);
+  if(!goToActionPoint(sp))return false;
+  manipulateAtCurrentPoint(sp,MANIP_TAKE,true);
+  if(!returnFromActionPoint(sp))return false;
+  markStorageUsed((uint8_t)reserve);
+  // Carry matching neutralizer to same contamination position.
+  if(!goToActionPoint(p))return false;
+  manipulateAtCurrentPoint(p,MANIP_THROW);
+  if(!returnFromActionPoint(p))return false;
+  item.status=POL_NEUTRALIZED;
+  Serial.print(F("NEUTRALIZATION_DONE "));Serial.print(zone);Serial.println(slot);
+  return true;
+}
+
+void runAutonomousMission() {
+  LbMotion.stopAndWait();
+  Serial.println(F("FULL_AUTO_MISSION_SINGLE_ROBOT"));
+  Serial.println(F("CRL START: place heading NORTHWEST, blocks from defines."));
+  if(!missionConfigValid) {
+    failStop(F("BAD_POLLUTION_OR_STORAGE_CONFIGURATION"));return;
+  }
+  LbMission.begin(TB1A+TB1B);
+  missionStartedAt=millis();
+  if(!exitCRLAndLocalize()) {
+    failStop(F("FAILED_TO_LOCALIZE_AFTER_CRL_EXIT"));LbMission.end();return;
+  }
+  bool ok=true;
+  while(enoughTime()) {
+    int8_t next=chooseNextUnknown();
+    if(next<0) break;
+    if(!processPollution((uint8_t)next)) {
+      ok=false;break;
+    }
+    // If a red/yellow block ended the mission at CRL, avoid
+    // using the stale map pose for any new planning.
+    if(!enoughTime())break;
+  }
+  if(ok && !atMarker) {
+    if(currentNode!=10 || currentHeading!=3)
+      Serial.println(F("RETURN_FINAL_TO_CRL"));
+    if(!enterCRL(false))ok=false;
+  } else if(atMarker) {
+    ok=false;Serial.println(F("ERROR UNRESOLVED_MARKER_POSITION"));
+  }
+  LbMotion.stopAndWait();
+  Serial.println(ok ? F("MISSION_COMPLETE_OR_TIME_LIMIT") : F("MISSION_ABORTED"));
   Leanbot.tone(ok?1500:500,400);
   LbMission.end();
 }
 
 void loop() {
-  static bool alreadyRun=false;
-  if(alreadyRun) return;
-  alreadyRun=true;
-  runNavigationTest();
+  static bool ran=false;
+  if(ran)return;
+  ran=true;
+  runAutonomousMission();
 }
