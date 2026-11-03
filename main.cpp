@@ -1073,6 +1073,34 @@ bool processPollution(uint8_t index) {
   return true;
 }
 
+void printMissionSummary() {
+  Serial.println(F("MISSION_SUMMARY_BEGIN"));
+  for(uint8_t i=0;i<7;i++) {
+    Serial.print(F(" P"));Serial.print(i+1);Serial.print('=');
+    uint8_t loc=pollution[i].location;
+    if(loc<32) {
+      Serial.print((char)('A'+loc/4));
+      Serial.print((uint8_t)(loc%4+1));
+    } else Serial.print(F("INVALID"));
+    Serial.print(F(" color="));Serial.print(colorName(pollution[i].color));
+    Serial.print(F(" status="));
+    switch(pollution[i].status) {
+      case POL_PENDING:Serial.println(F("PENDING"));break;
+      case POL_CONTAINED:Serial.println(F("CONTAINED_ASSUMED"));break;
+      case POL_NEUTRALIZED:Serial.println(F("NEUTRALIZED_ASSUMED"));break;
+      case POL_RETURNED:Serial.println(F("RETURNED_TO_CRL_ASSUMED"));break;
+      default:Serial.println(F("UNKNOWN_COLOR_UNRESOLVED"));
+    }
+  }
+  for(uint8_t i=0;i<6;i++) {
+    Serial.print(F(" S"));Serial.print(i+1);
+    Serial.print(F(" color="));Serial.print(storageSettings[i]);
+    Serial.print(F(" used="));Serial.println(storage[i].used ? 1 : 0);
+  }
+  Serial.print(F(" elapsed_ms="));Serial.println(millis()-missionStartedAt);
+  Serial.println(F("MISSION_SUMMARY_END"));
+}
+
 void runAutonomousMission() {
   LbMotion.stopAndWait();
   Serial.println(F("FULL_AUTO_MISSION_SINGLE_ROBOT"));
@@ -1104,7 +1132,8 @@ void runAutonomousMission() {
     ok=false;Serial.println(F("ERROR UNRESOLVED_MARKER_POSITION"));
   }
   LbMotion.stopAndWait();
-  Serial.println(ok ? F("MISSION_COMPLETE_OR_TIME_LIMIT") : F("MISSION_ABORTED"));
+  printMissionSummary();
+  Serial.println(ok ? F("MISSION_RETURNED_CRL") : F("MISSION_ABORTED"));
   Leanbot.tone(ok?1500:500,400);
   LbMission.end();
 }
