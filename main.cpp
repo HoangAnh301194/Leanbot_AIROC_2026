@@ -46,94 +46,6 @@ float lineTurnCorrection(int state) {
   }
 }
 
-void followJuntion();
-void followLineCarefully();
-void followLineMotorOnly();  // runFollowLine() calls this below
-
-void runFollowLine() {
-  LbIRLine.read();
-  line = LbIRLine.value();
-  followLineMotorOnly();
-  LbRGB.clear();
-  LbIRLine.displayOnRGB(0x00ff00);
-}
-
-bool juntion;
-int distance;
-// Describe this function...
-void folowinglineUntilJunction() {
-
-  { // Dò line cho tới khi gặp Juntion thì dừng
-    juntion = false;
-    while ((juntion == false)) {
-      speed = 1000;
-      distance = 1000;
-      followJuntion();
-    }
-
-    juntion = false;
-  }
-
-}
-
-int target;
-// Describe this function...
-void followLine() {
-
-  { // Dò line theo vận tốc và quãng đường , trước khi dùng thì set speed và set  distance
-    target = LbMotion.getDistanceMm() + distance;
-    followLineCarefully();
-    while (LbIRLine.isBlackDetected()) {
-      followLineCarefully();
-      if ((LbMotion.getDistanceMm() > target)) {
-        if ((line == 6)) {
-          break;
-        }
-      }
-      LbMotion.waitDistanceMm(1);
-    }
-
-  }
-
-}
-
-// Describe this function...
-void followJuntion() {
-  target = LbMotion.getDistanceMm() + distance;
-  followLineCarefully();
-  while (LbIRLine.isBlackDetected() && (juntion == false)) {
-    followLineCarefully();
-    if ((LbMotion.getDistanceMm() > target)) {
-      if ((line == 6)) {
-        break;
-      }
-    }
-    LbMotion.waitDistanceMm(1);
-  }
-
-}
-
-// Describe this function...
-void followLineCarefully() {
-  for (int count = 0; count < 3; count++) {
-    runFollowLine();
-    if ((line == 15)) {
-      juntion = true;
-      Leanbot.tone(1500, 100);
-      LbDelay(100);
-      LbRGB.clear();
-      LbRGB.fillColor(0xffff00, BITMAP(ledO, ledA, ledB, ledC, ledD, ledE, ledF));
-      LbRGB.show();
-      break;
-    } else if (LbIRLine.isBlackDetected()) {
-      break;
-    }
-    LbMotion.waitDistanceMm(1);
-  }
-
-}
-
-
 void setup() {
   Serial.begin(115200);
   Leanbot.begin();
@@ -168,27 +80,11 @@ void backwardMm(int distanceMm, int stepsPerSec = MOVE_STEPS_PER_SEC) {
 }
 
 // ================================================================
-// SIMPLE A-B-D MISSION (NO POSITION / HEADING ESTIMATION)
-// Fixed-color plan: A2 Yellow, B4 Green, D3 Blue.
-// Reserve blocks: S1 Green, S3 Blue.
-//
-// IMPORTANT - PROVISIONAL ROUTE:
-// START at CTRL with the robot ALREADY FACING NORTHWEST.
-// Drive forward, turn LEFT 45 deg to face WEST, then follow the
-// UPPER approach line toward the A/B/D side of the course.
-// Do NOT use the lower reserve-block road as the exit from CTRL.
-// Subsequent junction counts and B/D handling remain test assumptions;
-// the S1/S3 branch is visited only during reserve pickup missions.
-// Run with only ONE robot during first tests.
-// ================================================================
-
-
-// ================================================================
 // MAP SURVEY: Jrc = r*4+c. Checkpoints Hrc / Vrc.
 // J00, J03, J30 are rounded curves; J33 assumed rounded for the
 // test route (verify physical corner). NEVER turn in place on curves.
 // All 24 physical grid edges are covered by the route below.
-// Original contest mission remains under #else, untouched.
+// Survey-only firmware: no old mission or gripper actions.
 // ================================================================
 const uint8_t MAP_ROUTE[] = {
   15,14,13,14,10,6,2,1,2,3,7,6,5,1,0,4,5,9,13,12,8,4,8,9,10,11,7,11,15
