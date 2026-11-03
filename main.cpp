@@ -25,6 +25,80 @@ const uint16_t MARKER_BEEP_MS = 25;     // very short while line-following
 const uint16_t NODE_BEEP_MS = 80;
 const unsigned long RGB_REFRESH_MS = 35UL;
 
+// ================================================================
+// STORAGE BLOCKS: edit these SIX lines before a match.
+// G=Green, B=Blue, P=Purple, none=empty storage location.
+// Example placement only (S1/S3/S5); NOT a recommended physical layout.
+// ================================================================
+#define STORAGE_S1 "G"
+#define STORAGE_S2 "none"
+#define STORAGE_S3 "B"
+#define STORAGE_S4 "none"
+#define STORAGE_S5 "P"
+#define STORAGE_S6 "none"
+
+enum StorageColor : uint8_t {
+  STORAGE_EMPTY = 0,
+  STORAGE_GREEN = 1,
+  STORAGE_BLUE = 2,
+  STORAGE_PURPLE = 3,
+  STORAGE_INVALID = 255
+};
+
+struct StorageState {
+  uint8_t color; // see StorageColor
+  bool used;     // once picked, do not pick the same block again
+};
+
+StorageState storage[6];
+const char* const storageSettings[6] = {
+  STORAGE_S1, STORAGE_S2, STORAGE_S3,
+  STORAGE_S4, STORAGE_S5, STORAGE_S6
+};
+
+uint8_t parseStorageColor(const char* label) {
+  if (strcmp(label, "none") == 0) return STORAGE_EMPTY;
+  if (strcmp(label, "G") == 0) return STORAGE_GREEN;
+  if (strcmp(label, "B") == 0) return STORAGE_BLUE;
+  if (strcmp(label, "P") == 0) return STORAGE_PURPLE;
+  return STORAGE_INVALID;
+}
+
+void initializeStorage() {
+  uint8_t countG=0, countB=0, countP=0;
+  Serial.println(F("STORAGE_CONFIG_BEGIN"));
+  for (uint8_t i=0; i<6; ++i) {
+    storage[i].color=parseStorageColor(storageSettings[i]);
+    storage[i].used=false;
+    Serial.print('S');
+    Serial.print(i+1);
+    Serial.print('=');
+    Serial.println(storageSettings[i]);
+    if (storage[i].color==STORAGE_GREEN) ++countG;
+    else if (storage[i].color==STORAGE_BLUE) ++countB;
+    else if (storage[i].color==STORAGE_PURPLE) ++countP;
+    else if (storage[i].color==STORAGE_INVALID)
+      Serial.println(F("ERROR STORAGE_INVALID_COLOR"));
+  }
+  if (countG!=1 || countB!=1 || countP!=1)
+    Serial.println(F("WARNING STORAGE_EXPECT_ONE_EACH_G_B_P"));
+  Serial.println(F("STORAGE_CONFIG_END"));
+}
+
+// Returns zero-based slot index, or -1 if no unused storage of color.
+// This is inventory lookup only; no location-to-node mapping yet.
+int8_t findAvailableStorage(uint8_t color) {
+  for(uint8_t i=0; i<6; ++i)
+    if(storage[i].color==color && !storage[i].used) return (int8_t)i;
+  return -1;
+}
+
+void markStorageUsed(uint8_t index) {
+  if(index<6 && storage[index].color!=STORAGE_EMPTY)
+    storage[index].used=true;
+}
+
+
 
 
 int line;
@@ -56,6 +130,7 @@ void setup() {
   Serial.begin(115200);
   Leanbot.begin();
   LbIRLine.doManualCalibration(TB1A);
+  initializeStorage();
 }
 
 
