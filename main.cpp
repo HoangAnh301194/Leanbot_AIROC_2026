@@ -3,23 +3,28 @@
 
 #include <Leanbot.h>
 #include <Arduino_APDS9960.h>
+// Motor command units: steps/second (LbMotion.runLR).
+// These are initial test values, not RPM conversions.
+const int TURN_STEPS_PER_SEC = 500;
+const int MOVE_STEPS_PER_SEC = 750;
+
 int ObjRed, ObjGreen, ObjBlue;
 String color;
 String mau;  // Color result used by the original mission
 // Describe this function...
 void rotate45RightTakeCorner() {
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(30, 30);
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(8 * 10);
   LbMotion.stopAndWait();
   LbGripper.close();
-  LbMotion.runLRrpm(-30, -30);
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(8 * 10);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
 }
@@ -27,17 +32,17 @@ void rotate45RightTakeCorner() {
 // Describe this function...
 void rotate45RightTake() {
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(30, 30);
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(10 * 10);
   LbMotion.stopAndWait();
   LbGripper.close();
-  LbMotion.runLRrpm(-30, -30);
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(10 * 10);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
 }
@@ -45,17 +50,17 @@ void rotate45RightTake() {
 // Describe this function...
 void rotate45RightThrow() {
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(30, 30);
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(10 * 10);
   LbMotion.stopAndWait();
   LbGripper.open();
-  LbMotion.runLRrpm(-30, -30);
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(10 * 10);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
 }
@@ -64,17 +69,17 @@ void rotate45RightThrow() {
 void rotate45RightPushCorner() {
   LbGripper.close();
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(30, 30);
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(12 * 10);
   LbMotion.stopAndWait();
   LbGripper.open();
-  LbMotion.runLRrpm(-30, -30);
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(12 * 10);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
 }
@@ -82,17 +87,17 @@ void rotate45RightPushCorner() {
 // Describe this function...
 void rotate45LeftTakeCorner() {
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(30, 30);
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(8 * 10);
   LbMotion.stopAndWait();
   LbGripper.close();
-  LbMotion.runLRrpm(-30, -30);
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(8 * 10);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
 }
@@ -100,17 +105,17 @@ void rotate45LeftTakeCorner() {
 // Describe this function...
 void rotate45LeftTake() {
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(30, 30);
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(10 * 10);
   LbMotion.stopAndWait();
   LbGripper.close();
-  LbMotion.runLRrpm(-30, -30);
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(10 * 10);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
 }
@@ -118,17 +123,17 @@ void rotate45LeftTake() {
 // Describe this function...
 void rotate45LeftThrow() {
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(30, 30);
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(10 * 10);
   LbMotion.stopAndWait();
   LbGripper.open();
-  LbMotion.runLRrpm(-30, -30);
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(10 * 10);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
 }
@@ -137,17 +142,17 @@ void rotate45LeftThrow() {
 void rotate45LeftPushCorner() {
   LbGripper.close();
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(-20, 20);
+  LbMotion.runLR(-TURN_STEPS_PER_SEC, TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(30, 30);
+  LbMotion.runLR(MOVE_STEPS_PER_SEC, MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(12 * 10);
   LbMotion.stopAndWait();
   LbGripper.open();
-  LbMotion.runLRrpm(-30, -30);
+  LbMotion.runLR(-MOVE_STEPS_PER_SEC, -MOVE_STEPS_PER_SEC);
   LbMotion.waitDistanceMm(12 * 10);
   LbMotion.stopAndWait();
-  LbMotion.runLRrpm(20, -20);
+  LbMotion.runLR(TURN_STEPS_PER_SEC, -TURN_STEPS_PER_SEC);
   LbMotion.waitRotationDeg(45);
   LbMotion.stopAndWait();
 }
@@ -555,26 +560,26 @@ void followingLine(int x, int y ){
 // folllowingLine(2000,300);
 // Small reusable wrappers around existing Leanbot motion API.
 // No coordinates, pose estimation, or automatic path planning.
-void turnRight(int angleDeg, int rpm = 20) {
-  LbMotion.runLRrpm(rpm, -rpm);
+void turnRight(int angleDeg, int stepsPerSec = TURN_STEPS_PER_SEC) {
+  LbMotion.runLR(stepsPerSec, -stepsPerSec);
   LbMotion.waitRotationDeg(angleDeg);
   LbMotion.stopAndWait();
 }
 
-void turnLeft(int angleDeg, int rpm = 20) {
-  LbMotion.runLRrpm(-rpm, rpm);
+void turnLeft(int angleDeg, int stepsPerSec = TURN_STEPS_PER_SEC) {
+  LbMotion.runLR(-stepsPerSec, stepsPerSec);
   LbMotion.waitRotationDeg(angleDeg);
   LbMotion.stopAndWait();
 }
 
-void forwardMm(int distanceMm, int rpm = 25) {
-  LbMotion.runLRrpm(rpm, rpm);
+void forwardMm(int distanceMm, int stepsPerSec = MOVE_STEPS_PER_SEC) {
+  LbMotion.runLR(stepsPerSec, stepsPerSec);
   LbMotion.waitDistanceMm(distanceMm);
   LbMotion.stopAndWait();
 }
 
-void backwardMm(int distanceMm, int rpm = 25) {
-  LbMotion.runLRrpm(-rpm, -rpm);
+void backwardMm(int distanceMm, int stepsPerSec = MOVE_STEPS_PER_SEC) {
+  LbMotion.runLR(-stepsPerSec, -stepsPerSec);
   LbMotion.waitDistanceMm(distanceMm);
   LbMotion.stopAndWait();
 }
