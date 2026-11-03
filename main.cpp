@@ -653,7 +653,7 @@ LbGripper.moveTo(0);
  di_lui(10);
 re_trai(45);
   }
-else 
+else if (mau == "Red" || mau == "Yellow")
   {
 	LbGripper.moveTo(90);
 di_lui(8);
