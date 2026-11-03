@@ -193,18 +193,20 @@ ActionPoint pollutionPoint(uint8_t location) {
   return p;
 }
 
-// Slot mapping from the field diagram:
-// S1(bottom H31), S3(bottom J32), S5(bottom H32).
-// S2(right V13), S4(right J23), S6(right V23).
-// Distance/approach angle need hardware validation for real block offsets.
+// The storage slots are grouped around TWO grid junctions:
+// bottom S1/S3/S5 surround J32 (SW/S/SE), and right S2/S4/S6
+// surround J23 (NE/E/SE), as shown in the competition board.
+// ALL SIX storage pickups start from a node, never from a curve.
+// Straight approaches use STORAGE_NODE_MM; diagonal pickups use
+// the same +/-45-degree node TAKE distance as the former helpers.
 ActionPoint storagePoint(uint8_t zeroBased) {
   switch(zeroBased) {
-    case 0: return {ANCHOR_MARKER,14,13,3,LEFT_45};  // S1
-    case 1: return {ANCHOR_MARKER,7,11,2,LEFT_45};   // S2
-    case 2: return {ANCHOR_NODE,14,255,2,STRAIGHT};  // S3
-    case 3: return {ANCHOR_NODE,11,255,1,STRAIGHT};  // S4
-    case 4: return {ANCHOR_MARKER,14,15,1,RIGHT_45}; // S5
-    default:return {ANCHOR_MARKER,11,15,2,LEFT_45};  // S6
+    case 0: return {ANCHOR_NODE,14,255,3,LEFT_45};   // S1: J32 -> SW
+    case 1: return {ANCHOR_NODE,11,255,0,RIGHT_45};  // S2: J23 -> NE
+    case 2: return {ANCHOR_NODE,14,255,2,STRAIGHT};  // S3: J32 -> S
+    case 3: return {ANCHOR_NODE,11,255,1,STRAIGHT};  // S4: J23 -> E
+    case 4: return {ANCHOR_NODE,14,255,1,RIGHT_45};  // S5: J32 -> SE
+    default:return {ANCHOR_NODE,11,255,2,LEFT_45};   // S6: J23 -> SE
   }
 }
 
