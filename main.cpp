@@ -10,8 +10,8 @@ const int TURN_STEPS_PER_SEC = 850;
 const int MOVE_STEPS_PER_SEC = 1200;
 
 // ================================================================
-// MAP SURVEY / KHAO SAT TOAN BO 24 CANH CUA LUOI 4x4
-// Survey only. Single main.cpp.
+// AUTONOMOUS AIROC MISSION: Dijkstra + sensors + block handling.
+// All logic resides in this single main.cpp.
 // ================================================================
 const int SURVEY_SPEED_STEPS = 1200;       // steps/second
 const int SURVEY_MAX_EDGE_MM = 650;      // safety limit; calibrate on mat that
@@ -374,8 +374,7 @@ void setup() {
 }
 
 
-// Small reusable wrappers around existing Leanbot motion API.
-// No coordinates, pose estimation, or automatic path planning.
+// Motor helpers retained from the tested Leanbot mission (steps/second).
 void turnRight(int angleDeg, int stepsPerSec = TURN_STEPS_PER_SEC) {
   LbMotion.runLR(stepsPerSec, -stepsPerSec);
   LbMotion.waitRotationDeg(angleDeg);
@@ -410,7 +409,6 @@ void backwardMm(int distanceMm, int stepsPerSec = MOVE_STEPS_PER_SEC) {
 // Static arrays: safe for 2 KB RAM microcontrollers. No malloc/String.
 // ================================================================
 #define STATE_COUNT 64
-#define RANDOM_TEST_COUNT 5
 #define INVALID_STATE 255
 #define EDGE_COST 300U
 #define TURN_90_COST 120U
@@ -418,7 +416,6 @@ void backwardMm(int distanceMm, int stepsPerSec = MOVE_STEPS_PER_SEC) {
 
 // Physical node id: J(row)(col) -> row*4+col.
 const uint8_t START_NODE = 15; // J33
-const uint8_t FIRST_GOAL = 4; // J10, NOT integer node index 10
 const uint8_t START_HEADING = 3; // WEST
 
 uint8_t currentNode = START_NODE;
@@ -1008,13 +1005,17 @@ int8_t chooseNextUnknown() {
     ActionPoint p=pollutionPoint(pollution[i].location);
     if(!findPath(currentNode,currentHeading,p.node,false))continue;
     uint16_t c=65535U;
+    // Consider arrival heading at the destination, not the current heading.
     for(uint8_t h=0;h<4;h++) {
       uint16_t x=pathCost[p.node*4+h];
-      if(x<c)c=x;
+      if(x==65535U)continue;
+      uint16_t penalty=turnPenalty(h,p.heading);
+      if(x<=65535U-penalty && x+penalty<c)
+        c=(uint16_t)(x+penalty);
     }
     if(c==65535U)continue;
-    c=(uint16_t)(c+turnPenalty(currentHeading,p.heading));
-    if(p.type==ANCHOR_MARKER)c=(uint16_t)(c+EDGE_COST/2);
+    if(p.type==ANCHOR_MARKER && c<65535U-EDGE_COST/2)
+      c=(uint16_t)(c+EDGE_COST/2);
     if(c<best){best=c;choice=(int8_t)i;}
   }
   return choice;
