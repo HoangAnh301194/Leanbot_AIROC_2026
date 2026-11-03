@@ -137,7 +137,7 @@ struct ActionPoint {
 // Required when compiling main.cpp through LeanbotSketch.ino.
 ActionPoint pollutionPoint(uint8_t location);
 ActionPoint storagePoint(uint8_t zeroBased);
-bool goToActionPoint(const ActionPoint &p);
+bool goToActionPoint(const ActionPoint &p,bool storagePickup);
 bool returnFromActionPoint(const ActionPoint &p);
 void turnTowardBlock(const ActionPoint &p);
 void turnBackFromBlock(const ActionPoint &p);
@@ -658,7 +658,7 @@ void surveyFollowMotor() {
 // Traverse one planned hop, optionally continuing through a rounded
 // corner without stop/turn. Full-black observations are validated against
 // the edge pattern, not confused with the graph node identifiers.
-bool traverseHop(uint8_t dest,uint8_t via) {
+bool traverseHop(uint8_t dest,uint8_t via,bool centerAtDestination) {
   uint8_t from=currentNode;
   bool curved=(via!=INVALID_STATE);
   int8_t firstDir=gridDirection(from,curved?via:dest);
@@ -765,7 +765,13 @@ bool traverseHop(uint8_t dest,uint8_t via) {
         }
         if(observed==expected) {
           LbMotion.stopAndWait();
-          forwardMm(10,SURVEY_SPEED_STEPS); // sensor -> axle offset
+          if(centerAtDestination) {
+            forwardMm(10,SURVEY_SPEED_STEPS); // normal navigation: sensor -> axle
+          } else {
+            // Storage pickup: stop exactly when the node is recognized.
+            // Do not drive forward after the junction/marker beep.
+            Serial.println(F("STORAGE_NODE_STOP_NO_FORWARD"));
+          }
           break;
         }
       }
@@ -785,7 +791,7 @@ bool traverseHop(uint8_t dest,uint8_t via) {
   return true;
 }
 
-bool navigateTo(uint8_t goal) {
+bool navigateTo(uint8_t goal,bool centerFinalNode) {
   if(!findPath(currentNode,currentHeading,goal)) {
     Serial.println(F("ERROR NO_PATH"));
     return false;
@@ -795,7 +801,8 @@ bool navigateTo(uint8_t goal) {
   for(uint8_t i=1;i<routeLength;i++) {
     uint8_t dest=routeStates[i]/4;
     uint8_t via=routeVias[i];
-    if(!traverseHop(dest,via)) {
+    bool centerThisNode=(i+1<routeLength) || centerFinalNode;
+    if(!traverseHop(dest,via,centerThisNode)) {
       Serial.print(F("NAV_ABORT last_confirmed="));printNode(currentNode);
       Serial.println();
       return false;
@@ -902,9 +909,9 @@ bool followOneEvent(bool expectedMarker) {
 
 // One mission action always begins at a real anchor (node/marker).
 // Marker actions return to the SAME entry junction afterwards.
-bool goToActionPoint(const ActionPoint &p) {
+bool goToActionPoint(const ActionPoint &p,bool storagePickup) {
   if(atMarker) {Serial.println(F("ERROR ALREADY_AT_MARKER"));return false;}
-  if(!navigateTo(p.node)) return false;
+  if(!navigateTo(p.node,!storagePickup)) return false;
   if(p.heading>=4) return false;
   turnToward(p.heading);
   if(p.type==ANCHOR_MARKER) {
@@ -959,26 +966,101 @@ uint8_t scanAtCurrentPoint(const ActionPoint &p) {
   return c;
 }
 
-// Reproduces the existing helper motions: +/-45 deg, 80mm node TAKE,
-// 100mm marker TAKE/THROW, 120mm PUSH, then reverse and restore yaw.
+// Shared engine for the ORIGINAL rotate45... helpers in feature/line-color-v2.
+// Keep the named wrappers so node vs marker and left vs right are explicit.
+// MARKER: Take/Throw 100 mm. NODE (Corner): Take/Throw 80 mm.
+// Push: 120 mm. Always return by the same distance and restore heading.
+// The gripper remains closed when carrying an object after TAKE.
+void rotate45Action(int8_t side,uint8_t action,uint16_t distanceMm) {
+  LbMotion.stopAndWait();
+  if(action==MANIP_PUSH) LbGripper.close();
+  else if(action==MANIP_TAKE) LbGripper.open();
+  if(side==RIGHT_45) turnRight(45);
+  else if(side==LEFT_45) turnLeft(45);
+  if(distanceMm>0)forwardMm(distanceMm);
+  if(action==MANIP_TAKE)LbGripper.close();
+  else LbGripper.open();
+  if(distanceMm>0)backwardMm(distanceMm);
+  if(side==RIGHT_45)turnLeft(45);
+  else if(side==LEFT_45)turnRight(45);
+  LbMotion.stopAndWait();
+}
+
+// Names and distances correspond to the original helpers (reimplemented
+// through a compact shared engine to reduce flash usage on Arduino Nano).
+void rotate45RightTakeCorner(){rotate45Action(RIGHT_45,MANIP_TAKE,80);}
+void rotate45LeftTakeCorner(){rotate45Action(LEFT_45,MANIP_TAKE,80);}
+void rotate45RightTake(){rotate45Action(RIGHT_45,MANIP_TAKE,100);}
+void rotate45LeftTake(){rotate45Action(LEFT_45,MANIP_TAKE,100);}
+void rotate45RightThrowCorner(){rotate45Action(RIGHT_45,MANIP_THROW,80);}
+void rotate45LeftThrowCorner(){rotate45Action(LEFT_45,MANIP_THROW,80);}
+void rotate45RightThrow(){rotate45Action(RIGHT_45,MANIP_THROW,100);}
+void rotate45LeftThrow(){rotate45Action(LEFT_45,MANIP_THROW,100);}
+void rotate45RightPushCorner(){rotate45Action(RIGHT_45,MANIP_PUSH,120);}
+void rotate45LeftPushCorner(){rotate45Action(LEFT_45,MANIP_PUSH,120);}
+// The old branch did not have explicit marker PUSH helpers.
+void rotate45RightPush(){rotate45Action(RIGHT_45,MANIP_PUSH,120);}
+void rotate45LeftPush(){rotate45Action(LEFT_45,MANIP_PUSH,120);}
+
+// For all S1..S6 storage pickups: stop on the final node event,
+// turn toward the slot as required, then CLOSE GRIPPER DIRECTLY.
+// No forwardMm / backwardMm after reaching the storage junction.
+void gripStorageWithoutAdvance(int8_t side) {
+  LbMotion.stopAndWait();
+  LbGripper.open();
+  if(side==RIGHT_45)turnRight(45);
+  else if(side==LEFT_45)turnLeft(45);
+  Serial.println(F("STORAGE_GRIP_DIRECT_NO_FORWARD"));
+  LbGripper.close();
+  if(side==RIGHT_45)turnLeft(45);
+  else if(side==LEFT_45)turnRight(45);
+  LbMotion.stopAndWait();
+}
+
+// Primitive parameters deliberately avoid Arduino .ino auto-prototype
+// failures involving the user-defined ActionPoint type.
 void manipulateAtCurrentPoint(uint8_t pointType, uint8_t heading,
                               int8_t side, uint8_t action, bool storageBlock) {
-  ActionPoint p = {pointType, 0, 255, heading, side};
-  LbMotion.stopAndWait();
-  if(action==MANIP_TAKE || action==MANIP_PUSH) LbGripper.open();
-  turnTowardBlock(p);
-  uint16_t mm=p.type==ANCHOR_NODE ? TAKE_NODE_MM : TAKE_MARKER_MM;
-  if(storageBlock && p.side==STRAIGHT)mm=STORAGE_NODE_MM;
-  if(action==MANIP_PUSH) {
-    mm=PUSH_MM;
-    LbGripper.close(); // closed fingers for the first part of the push
+  (void)heading;
+  if(storageBlock) {
+    if(action!=MANIP_TAKE) {
+      Serial.println(F("ERROR STORAGE_ACTION_MUST_BE_TAKE"));
+      return;
+    }
+    gripStorageWithoutAdvance(side);
+    return;
   }
-  forwardMm(mm);
-  if(action==MANIP_TAKE) LbGripper.close();
-  else LbGripper.open();
-  backwardMm(mm);
-  turnBackFromBlock(p);
-  LbMotion.stopAndWait();
+  if(side==STRAIGHT) {
+    // No +/-45-degree turn; preserve semantics for any future direct
+    // approach points (currently pollution positions are diagonal).
+    uint16_t dist=pointType==ANCHOR_MARKER?100:80;
+    if(action==MANIP_PUSH)dist=120;
+    rotate45Action(STRAIGHT,action,dist);
+    return;
+  }
+  if(pointType==ANCHOR_MARKER) {
+    if(action==MANIP_TAKE) {
+      if(side==RIGHT_45)rotate45RightTake();
+      else rotate45LeftTake();
+    } else if(action==MANIP_THROW) {
+      if(side==RIGHT_45)rotate45RightThrow();
+      else rotate45LeftThrow();
+    } else {
+      if(side==RIGHT_45)rotate45RightPush();
+      else rotate45LeftPush();
+    }
+  } else {
+    if(action==MANIP_TAKE) {
+      if(side==RIGHT_45)rotate45RightTakeCorner();
+      else rotate45LeftTakeCorner();
+    } else if(action==MANIP_THROW) {
+      if(side==RIGHT_45)rotate45RightThrowCorner();
+      else rotate45LeftThrowCorner();
+    } else {
+      if(side==RIGHT_45)rotate45RightPushCorner();
+      else rotate45LeftPushCorner();
+    }
+  }
 }
 
 // The starting pose is INSIDE CRL facing NW (315 deg).
@@ -991,7 +1073,7 @@ bool exitCRLAndLocalize() {
   forwardMm(CRL_DIAGONAL_MM);
   turnLeft(45);
   currentNode=10;currentHeading=3;atMarker=false; // J22, WEST inferred
-  if(!traverseHop(9,INVALID_STATE)) return false; // J21 confirmed by 1111 count
+  if(!traverseHop(9,INVALID_STATE,true)) return false; // J21 confirmed by 1111 count
   Serial.println(F("CRL_EXIT_LOCALIZED_AT_J21"));
   insideCRL=false;
   return true;
@@ -1009,7 +1091,7 @@ void turnCardinalToSoutheast() {
 // If resume=true, retreat out of CRL to J22, restore facing WEST.
 bool enterCRL(bool resume) {
   if(atMarker) {Serial.println(F("ERROR RETURN_FROM_MARKER_FIRST"));return false;}
-  if(!navigateTo(10))return false;  // J22
+  if(!navigateTo(10,true))return false;  // J22
   turnCardinalToSoutheast();
   forwardMm(CRL_DIAGONAL_MM);
   LbGripper.open();
@@ -1066,7 +1148,7 @@ bool processPollution(uint8_t index) {
   char zone=(char)('A'+item.location/4);
   uint8_t slot=(uint8_t)(item.location%4+1);
   Serial.print(F("TASK_POSITION "));Serial.print(zone);Serial.println(slot);
-  if(!goToActionPoint(p))return false;
+  if(!goToActionPoint(p,false))return false;
   uint8_t c=scanAtCurrentPoint(p);
   item.color=c;
   if(c==COL_UNKNOWN) {
@@ -1099,12 +1181,12 @@ bool processPollution(uint8_t index) {
   }
   ActionPoint sp=storagePoint((uint8_t)reserve);
   Serial.print(F("PICK_STORAGE S"));Serial.println(reserve+1);
-  if(!goToActionPoint(sp))return false;
+  if(!goToActionPoint(sp,true))return false;
   manipulateAtCurrentPoint(sp.type,sp.heading,sp.side,MANIP_TAKE,true);
   if(!returnFromActionPoint(sp))return false;
   markStorageUsed((uint8_t)reserve);
   // Carry matching neutralizer to same contamination position.
-  if(!goToActionPoint(p))return false;
+  if(!goToActionPoint(p,false))return false;
   manipulateAtCurrentPoint(p.type,p.heading,p.side,MANIP_THROW,false);
   if(!returnFromActionPoint(p))return false;
   item.status=POL_NEUTRALIZED;
