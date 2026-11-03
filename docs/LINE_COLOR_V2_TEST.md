@@ -41,3 +41,8 @@ This branch is experimental. **Do not merge or run at full speed before validati
 - Start: CTRL, facing southwest. First command drives straight 287 mm (estimated) before a 45-degree right turn to the bottom line.
 - Task sequence is B Green push, D Blue push, S3 Blue pickup/delivery, S1 Green pickup/delivery, A Yellow pickup/CTRL delivery.
 - **No successful compilation or physical navigation has been verified**. Junction counts, turning geometry, reserve approach, and hard-coded distances are PROVISIONAL; original `followLineUntilNthJunction` may block indefinitely when a junction is missed. Test one leg at a time with clear space and low motor speed; do not run the second robot simultaneously yet.
+
+## Motor velocity unit (steps/sec)
+- All motor commands in `main.cpp` now use `LbMotion.runLR(leftStepsPerSec, rightStepsPerSec)` instead of `runLRrpm`.
+- Default turning command speed: `TURN_STEPS_PER_SEC = 500`; default straight/back command speed: `MOVE_STEPS_PER_SEC = 750`. These are initial test values, **not** numerical RPM-to-step conversions.
+- `turnRight(angleDeg, stepsPerSec)`, `turnLeft(angleDeg, stepsPerSec)`, `forwardMm(distanceMm, stepsPerSec)`, and `backwardMm(distanceMm, stepsPerSec)` accept optional step/s speed arguments.
