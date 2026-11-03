@@ -392,6 +392,11 @@ void followLineUntilNthJunction(int n, int v) {
     LbIRLine.read();
     line = LbIRLine.value();
 
+    // Hien thi 4 cam bien IR tren LED RGB trong luc do line.
+    // Cac mat phat hien vach den se hien thi mau xanh la.
+    LbRGB.clear();
+    LbIRLine.displayOnRGB(0x00ff00);
+
     // Dieu khien robot bam line
     followLineMotorOnly();
 
