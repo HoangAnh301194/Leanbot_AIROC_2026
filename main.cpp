@@ -25,6 +25,10 @@ const uint16_t MARKER_BEEP_HZ = 1050;   // low pitch: H/V checkpoint
 const uint16_t NODE_BEEP_HZ = 1900;     // high pitch: junction reached
 const uint16_t MARKER_BEEP_MS = 25;     // very short while line-following
 const uint16_t NODE_BEEP_MS = 80;
+// Move from the IR bar detection position to the wheel-axle center.
+// All junctions, INCLUDING J32/J23 at storage, use this offset.
+const uint8_t JUNCTION_CENTER_MM = 20;
+const uint8_t MARKER_CENTER_MM = 10;
 const unsigned long RGB_REFRESH_MS = 35UL;
 
 // ================================================================
@@ -660,7 +664,7 @@ void surveyFollowMotor() {
 // Traverse one planned hop, optionally continuing through a rounded
 // corner without stop/turn. Full-black observations are validated against
 // the edge pattern, not confused with the graph node identifiers.
-bool traverseHop(uint8_t dest,uint8_t via,bool centerAtDestination) {
+bool traverseHop(uint8_t dest,uint8_t via) {
   uint8_t from=currentNode;
   bool curved=(via!=INVALID_STATE);
   int8_t firstDir=gridDirection(from,curved?via:dest);
@@ -767,13 +771,11 @@ bool traverseHop(uint8_t dest,uint8_t via,bool centerAtDestination) {
         }
         if(observed==expected) {
           LbMotion.stopAndWait();
-          if(centerAtDestination) {
-            forwardMm(10,SURVEY_SPEED_STEPS); // normal navigation: sensor -> axle
-          } else {
-            // Storage pickup: stop exactly when the node is recognized.
-            // Do not drive forward after the junction/marker beep.
-            Serial.println(F("STORAGE_NODE_STOP_NO_FORWARD"));
-          }
+          // ALWAYS center the wheel axle at the junction (incl. J32/J23).
+          // Storage gripper takes directly AFTER this one-time offset.
+          forwardMm(JUNCTION_CENTER_MM,SURVEY_SPEED_STEPS);
+          Serial.print(F("NODE_CENTER_OFFSET_MM="));
+          Serial.println(JUNCTION_CENTER_MM);
           break;
         }
       }
@@ -793,7 +795,7 @@ bool traverseHop(uint8_t dest,uint8_t via,bool centerAtDestination) {
   return true;
 }
 
-bool navigateTo(uint8_t goal,bool centerFinalNode) {
+bool navigateTo(uint8_t goal) {
   if(!findPath(currentNode,currentHeading,goal)) {
     Serial.println(F("ERROR NO_PATH"));
     return false;
@@ -803,8 +805,7 @@ bool navigateTo(uint8_t goal,bool centerFinalNode) {
   for(uint8_t i=1;i<routeLength;i++) {
     uint8_t dest=routeStates[i]/4;
     uint8_t via=routeVias[i];
-    bool centerThisNode=(i+1<routeLength) || centerFinalNode;
-    if(!traverseHop(dest,via,centerThisNode)) {
+    if(!traverseHop(dest,via)) {
       Serial.print(F("NAV_ABORT last_confirmed="));printNode(currentNode);
       Serial.println();
       return false;
@@ -823,7 +824,10 @@ bool navigateTo(uint8_t goal,bool centerFinalNode) {
 // EMPIRICAL setup assumption from the older successful CRL exit.
 // All movement remains blocking; no scheduler/heap needed.
 // ================================================================
-#define MISSION_TIME_LIMIT_MS 180000UL    // National round; set 120000UL for Intl.
+// Test mode: 0 = visit ALL declared pollution slots without a timer.
+// Competition mode: 1 = observe MISSION_TIME_LIMIT_MS and reserve CRL time.
+#define MISSION_TIME_LIMIT_ENABLED 0
+#define MISSION_TIME_LIMIT_MS 180000UL
 #define RETURN_RESERVE_MS 28000UL
 #define CRL_DIAGONAL_MM 130
 #define SCAN_NODE_MM 55
@@ -849,8 +853,14 @@ void failStop(const __FlashStringHelper* why) {
 }
 
 bool enoughTime() {
-  return (unsigned long)(millis()-missionStartedAt)
-         < (unsigned long)(MISSION_TIME_LIMIT_MS-RETURN_RESERVE_MS);
+#if MISSION_TIME_LIMIT_ENABLED == 0
+  return true;
+#else
+  const unsigned long elapsed=(unsigned long)(millis()-missionStartedAt);
+  const unsigned long workable=(MISSION_TIME_LIMIT_MS>RETURN_RESERVE_MS)
+      ? (MISSION_TIME_LIMIT_MS-RETURN_RESERVE_MS) : 0UL;
+  return elapsed < workable;
+#endif
 }
 
 // Follow exactly ONE new full-black event: node->marker OR marker->node.
@@ -896,7 +906,9 @@ bool followOneEvent(bool expectedMarker) {
         Serial.println(d);
         Leanbot.tone(expectedMarker ? MARKER_BEEP_HZ : NODE_BEEP_HZ,
                      expectedMarker ? MARKER_BEEP_MS : NODE_BEEP_MS);
-        forwardMm(10,SURVEY_SPEED_STEPS);
+        // Marker positioning remains 10 mm; a true junction is 20 mm.
+        forwardMm(expectedMarker ? MARKER_CENTER_MM : JUNCTION_CENTER_MM,
+                  SURVEY_SPEED_STEPS);
         return true;
       }
     } else {
@@ -912,8 +924,10 @@ bool followOneEvent(bool expectedMarker) {
 // One mission action always begins at a real anchor (node/marker).
 // Marker actions return to the SAME entry junction afterwards.
 bool goToActionPoint(const ActionPoint &p,bool storagePickup) {
+  (void)storagePickup; // storage now uses the same 20 mm junction centering.
   if(atMarker) {Serial.println(F("ERROR ALREADY_AT_MARKER"));return false;}
-  if(!navigateTo(p.node,!storagePickup)) return false;
+  // Every junction is axle-centered before any storage or pollution action.
+  if(!navigateTo(p.node)) return false;
   if(p.heading>=4) return false;
   turnToward(p.heading);
   if(p.type==ANCHOR_MARKER) {
@@ -1075,7 +1089,7 @@ bool exitCRLAndLocalize() {
   forwardMm(CRL_DIAGONAL_MM);
   turnLeft(45);
   currentNode=10;currentHeading=3;atMarker=false; // J22, WEST inferred
-  if(!traverseHop(9,INVALID_STATE,true)) return false; // J21 confirmed by 1111 count
+  if(!traverseHop(9,INVALID_STATE)) return false; // J21 confirmed by 1111 count
   Serial.println(F("CRL_EXIT_LOCALIZED_AT_J21"));
   insideCRL=false;
   return true;
@@ -1093,7 +1107,7 @@ void turnCardinalToSoutheast() {
 // If resume=true, retreat out of CRL to J22, restore facing WEST.
 bool enterCRL(bool resume) {
   if(atMarker) {Serial.println(F("ERROR RETURN_FROM_MARKER_FIRST"));return false;}
-  if(!navigateTo(10,true))return false;  // J22
+  if(!navigateTo(10))return false;  // J22
   turnCardinalToSoutheast();
   forwardMm(CRL_DIAGONAL_MM);
   LbGripper.open();
@@ -1233,6 +1247,12 @@ void runAutonomousMission() {
   }
   LbMission.begin(TB1A+TB1B);
   missionStartedAt=millis();
+#if MISSION_TIME_LIMIT_ENABLED == 0
+  Serial.println(F("MISSION_TIMER_DISABLED: test all configured blocks"));
+#else
+  Serial.print(F("MISSION_TIMER_ENABLED max_ms="));Serial.println(MISSION_TIME_LIMIT_MS);
+  Serial.print(F("RETURN_RESERVE_MS="));Serial.println(RETURN_RESERVE_MS);
+#endif
   if(!exitCRLAndLocalize()) {
     failStop(F("FAILED_TO_LOCALIZE_AFTER_CRL_EXIT"));LbMission.end();return;
   }
@@ -1248,6 +1268,8 @@ void runAutonomousMission() {
     if(!enoughTime())break;
   }
   if(ok && !insideCRL && !atMarker) {
+    if(!enoughTime()) Serial.println(F("MISSION_STOP_REASON_TIME_RESERVE"));
+    else Serial.println(F("MISSION_STOP_REASON_ALL_POSITIONS_VISITED"));
     if(currentNode!=10 || currentHeading!=3)
       Serial.println(F("RETURN_FINAL_TO_CRL"));
     if(!enterCRL(false))ok=false;
