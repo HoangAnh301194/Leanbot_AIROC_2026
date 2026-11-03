@@ -5,6 +5,7 @@
 #include <Arduino_APDS9960.h>
 int ObjRed, ObjGreen, ObjBlue;
 String color;
+String mau;  // Color result used by the original mission
 // Describe this function...
 void rotate45RightTakeCorner() {
   LbMotion.stopAndWait();
@@ -153,36 +154,40 @@ void rotate45LeftPushCorner() {
 
 int line;
 int speed;
-// Describe this function...
+// Digital 4-sensor line tracking: uses calibrated black/white bitmask only.
+// Corrections are initial tuning values; validate sensor orientation on hardware.
+const float LINE_TURN_SMALL = 0.20f;
+const float LINE_TURN_MEDIUM = 0.40f;
+const float LINE_TURN_LARGE = 0.70f;
+const unsigned long LINE_LOSS_HOLD_MS = 40;
+int lastLineTurn = 0; // -1: slow left wheel; +1: slow right wheel
+unsigned long lineLossStartedAt = 0;
+
+float lineTurnCorrection(int state) {
+  switch (state) {
+    // Preserve turning directions of the original sketch.
+    case 4:  return -LINE_TURN_SMALL;
+    case 12: return -LINE_TURN_MEDIUM;
+    case 8:  return -LINE_TURN_LARGE;
+    case 14: return -LINE_TURN_MEDIUM;
+    case 2:  return  LINE_TURN_SMALL;
+    case 3:  return  LINE_TURN_MEDIUM;
+    case 1:  return  LINE_TURN_LARGE;
+    case 7:  return  LINE_TURN_MEDIUM;
+    case 6:  // centered
+    case 15: // junction / all black
+    default: return 0.0f;
+  }
+}
+
+void followLineMotorOnly();  // runFollowLine() calls this below
+
 void runFollowLine() {
   LbIRLine.read();
   line = LbIRLine.value();
+  followLineMotorOnly();
   LbRGB.clear();
   LbIRLine.displayOnRGB(0x00ff00);
-  switch (line) {
-    case 4:
-    case 14:
-    case 12:
-    case 8:
-      LbMotion.runLR(speed / 8, speed);
-      break;
-
-    case 2:
-    case 7:
-    case 3:
-    case 1:
-      LbMotion.runLR(speed, speed / 8);
-      break;
-
-    case 9:
-    case 13:
-    case 11:
-    case 10:
-    case 5:
-    default:
-      LbMotion.runLR(speed, speed);
-   }
-
 }
 
 bool juntion;
@@ -266,27 +271,32 @@ void followLineCarefully() {
  * Khong cap nhat LED RGB de giu mau bao nga tu.
  */
 void followLineMotorOnly() {
-  LbRGB.clear();
-  LbIRLine.displayOnRGB(0x00ff00);
-  switch (line) {
-    case 4:
-    case 14:
-    case 12:
-    case 8:
-      LbMotion.runLR(speed / 8, speed);
-      break;
-
-    case 2:
-    case 7:
-    case 3:
-    case 1:
-      LbMotion.runLR(speed, speed / 8);
-      break;
-
-    default:
+  // On complete line loss, travel straight briefly (for small gaps),
+  // then search in the direction of the last observed deviation.
+  if (line == 0) {
+    if (lineLossStartedAt == 0) lineLossStartedAt = millis();
+    if ((unsigned long)(millis() - lineLossStartedAt) < LINE_LOSS_HOLD_MS) {
       LbMotion.runLR(speed, speed);
-      break;
+      return;
+    }
+    int slow = (int)(speed * (1.0f - LINE_TURN_LARGE));
+    if (lastLineTurn < 0) LbMotion.runLR(slow, speed);
+    else if (lastLineTurn > 0) LbMotion.runLR(speed, slow);
+    else LbMotion.runLR(speed, speed);
+    return;
   }
+  lineLossStartedAt = 0;
+  float correction = lineTurnCorrection(line);
+  // Do not overwrite last deviation on full black / junction.
+  if (line != 15) {
+    if (correction < 0) lastLineTurn = -1;
+    else if (correction > 0) lastLineTurn = 1;
+  }
+  int left = speed;
+  int right = speed;
+  if (correction < 0) left = (int)(speed * (1.0f + correction));
+  else if (correction > 0) right = (int)(speed * (1.0f - correction));
+  LbMotion.runLR(left, right);
 }
 
 /*
@@ -425,126 +435,95 @@ void followLineUntilNthJunction(int n, int v) {
 
 
 // ==================================================
-// ĐỌC RGB — GIỮ CÁCH ĐO CỦA BẠN
+// APDS9960 five-color recognition under switched RGB illumination.
+// Gains and thresholds are initial estimates; calibrate using real blocks.
 // ==================================================
-void _coreRead(int& r, int& g, int& b, CRGB ledColor)
-{
+const float COLOR_GAIN_R = 1.0f;
+const float COLOR_GAIN_G = 1.0f;
+const float COLOR_GAIN_B = 1.0f;
+const float COLOR_MIN_SIGNAL = 10.0f;
+const unsigned long COLOR_TIMEOUT_MS = 350;
+bool colorReadOK = false;
+
+bool _coreRead(int& r, int& g, int& b, CRGB ledColor) {
   LbRGB.fillColor(ledColor);
   LbRGB.show();
-
-  while (!APDS.colorAvailable());
-
+  LbDelay(20);  // Allow illumination to settle.
+  // Discard the previously available sample to avoid using the last LED color.
+  if (APDS.colorAvailable()) {
+    int oldR, oldG, oldB;
+    APDS.readColor(oldR, oldG, oldB);
+  }
+  unsigned long t0 = millis();
+  while (!APDS.colorAvailable()) {
+    if ((unsigned long)(millis() - t0) >= COLOR_TIMEOUT_MS) return false;
+  }
   APDS.readColor(r, g, b);
+  return true;
 }
 
-void Obj_readRGB()
-{
-  int rRed, gGreen, bBlue;
-  int rr, gg, bb;
+void Obj_readRGB() {
+  int rRed = 0, gGreen = 0, bBlue = 0;
+  int rawR = 0, rawG = 0, rawB = 0;
+  int darkR = 0, darkG = 0, darkB = 0;
 
-  int originalBrightness = LbRGB.getBrightness();
+  colorReadOK = false;
+  ObjRed = ObjGreen = ObjBlue = 0;
+  int previousBrightness = LbRGB.getBrightness();
   LbRGB.setBrightness(255);
 
-  _coreRead(rRed, gg, bb, CRGB::Red);
-  _coreRead(rr, gGreen, bb, CRGB::Lime);
-  _coreRead(rr, gg, bBlue, CRGB::Blue);
-  _coreRead(rr, gg, bb, CRGB::Black);
+  bool ok = _coreRead(rRed, rawG, rawB, CRGB::Red);
+  if (ok) ok = _coreRead(rawR, gGreen, rawB, CRGB::Lime);
+  if (ok) ok = _coreRead(rawR, rawG, bBlue, CRGB::Blue);
+  if (ok) ok = _coreRead(darkR, darkG, darkB, CRGB::Black);
 
-  LbRGB.setBrightness(originalBrightness);
-
-  ObjRed   = rRed   - rr;
-  ObjGreen = gGreen - gg;
-  ObjBlue  = bBlue  - bb;
-}
-
-// ==================================================
-// NHẬN DIỆN MÀU
-// ==================================================
-boolean BasicObj_isRed()
-{
-  if (ObjRed <= ObjGreen) return false;
-  if (ObjRed <= ObjBlue)  return false;
-  if (ObjRed <= 3)        return false;
-
-  return true;
-}
-
-boolean BasicObj_isGreen()
-{
-  if (ObjGreen <= ObjRed)  return false;
-  if (ObjGreen <= ObjBlue) return false;
-  if (ObjGreen <= 3)       return false;
-
-  return true;
-}
-
-boolean BasicObj_isPurple()
-{
-  if (ObjBlue <= ObjRed)   return false;
-  if (ObjBlue <= ObjGreen) return false;
-  if (ObjBlue <= 3)        return false;
-
-  if (ObjRed <= 0)         return false;
-  if (ObjGreen <= 0)       return false;
-
-  // Purple: G < 2 × R.
-  if ((long)ObjGreen >= 2L * ObjRed) return false;
-
-  return true;
-}
-
-boolean BasicObj_isBlue()
-{
-  if (ObjBlue <= ObjRed)   return false;
-  if (ObjBlue <= ObjGreen) return false;
-  if (ObjBlue <= 3)        return false;
-
-  if (ObjRed <= 0)         return false;
-  if (ObjGreen <= 0)       return false;
-
-  // Blue: G >= 2 × R.
-  if ((long)ObjGreen < 2L * ObjRed) return false;
-
-  return true;
-}
-
-// ==================================================
-// ĐỌC MÀU VÀ HIỂN THỊ LÊN LED
-// ==================================================
-String Obj_detectColor()
-{
-  Obj_readRGB();
-
-  
-  if (BasicObj_isGreen())
-  {
-    LbRGB.fillColor(CRGB::Green);
-    LbRGB.show();
-    return "Green";
-  }
-  else if (BasicObj_isPurple())
-  {
-    LbRGB.fillColor(CRGB::Purple);
-    LbRGB.show();
-    return "Purple";
-  }
-  else if (BasicObj_isBlue())
-  {
-    LbRGB.fillColor(CRGB::Blue);
-    LbRGB.show();
-    return "Blue";
-  }
-  else 
-  {
-    LbRGB.fillColor(CRGB::Red);
-    LbRGB.show();
-    return "Red";
-  }
-  LbRGB.fillColor(CRGB(50, 50, 50));
+  LbRGB.setBrightness(previousBrightness);
+  LbRGB.clear();
   LbRGB.show();
-  return "Unknown";
+  if (!ok) return;
+
+  ObjRed = (rRed > darkR) ? (rRed - darkR) : 0;
+  ObjGreen = (gGreen > darkG) ? (gGreen - darkG) : 0;
+  ObjBlue = (bBlue > darkB) ? (bBlue - darkB) : 0;
+  colorReadOK = true;
 }
 
+// Returns: "Red", "Yellow", "Green", "Blue", "Purple" or "Unknown".
+String Obj_detectColor() {
+  Obj_readRGB();
+  if (!colorReadOK) return "Unknown";
+
+  float r = ObjRed * COLOR_GAIN_R;
+  float g = ObjGreen * COLOR_GAIN_G;
+  float b = ObjBlue * COLOR_GAIN_B;
+  if (r < COLOR_MIN_SIGNAL && g < COLOR_MIN_SIGNAL && b < COLOR_MIN_SIGNAL) return "Unknown";
+
+  String detected = "Unknown";
+  if (r >= COLOR_MIN_SIGNAL && g >= COLOR_MIN_SIGNAL &&
+      r > 1.45f * b && g > 1.45f * b &&
+      r < 2.0f * g && g < 2.0f * r) {
+    detected = "Yellow";
+  } else if (r >= COLOR_MIN_SIGNAL && b >= COLOR_MIN_SIGNAL &&
+             r > 1.45f * g && b > 1.45f * g &&
+             r < 2.2f * b && b < 2.2f * r) {
+    detected = "Purple";
+  } else if (g >= COLOR_MIN_SIGNAL && g > 1.30f * r && g > 1.30f * b) {
+    detected = "Green";
+  } else if (b >= COLOR_MIN_SIGNAL && b > 1.30f * r && b > 1.30f * g) {
+    detected = "Blue";
+  } else if (r >= COLOR_MIN_SIGNAL && r > 1.30f * g && r > 1.30f * b) {
+    detected = "Red";
+  }
+
+  if (detected == "Red") LbRGB.fillColor(CRGB::Red);
+  else if (detected == "Yellow") LbRGB.fillColor(CRGB::Yellow);
+  else if (detected == "Green") LbRGB.fillColor(CRGB::Green);
+  else if (detected == "Blue") LbRGB.fillColor(CRGB::Blue);
+  else if (detected == "Purple") LbRGB.fillColor(CRGB::Purple);
+  else LbRGB.fillColor(CRGB(50, 50, 50));
+  LbRGB.show();
+  return detected;
+}
 
 void setup() {
   Leanbot.begin();
@@ -693,6 +672,12 @@ re_trai(130);
    followLine();
    LbMotion.stopAndWait();
 re_phai(85);
+  }
+  else {
+    // A failed / ambiguous APDS reading must not be treated as red.
+    LbMotion.stopAndWait();
+    Leanbot.tone(800, 300);
+    // Continue only after manual correction / restart.
   }
   // Dò Line
   // { 
